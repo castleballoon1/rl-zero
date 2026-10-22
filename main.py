@@ -22,13 +22,13 @@ if BACKGROUND_IMAGE_PATH:
         print(f"Could not load background image: {e}")
 
 west_frames = [
-    pygame.image.load("assets/child_west1.png").convert_alpha(),
-    pygame.image.load("assets/child_west2.png").convert_alpha()
+    pygame.image.load("assets/Sprites/MC (simplified)/child_west1.png").convert_alpha(),
+    pygame.image.load("assets/Sprites/MC (simplified)/child_west2.png").convert_alpha()
 ]
 
 east_frames = [
-    pygame.image.load("assets/child_east1.png").convert_alpha(),
-    pygame.image.load("assets/child_east2.png").convert_alpha()
+    pygame.image.load("assets/Sprites/MC (simplified)/child_east1.png").convert_alpha(),
+    pygame.image.load("assets/Sprites/MC (simplified)/child_east2.png").convert_alpha()
 ]
 
 SCALE_FACTOR = 3
