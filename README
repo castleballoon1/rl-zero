@@ -2,19 +2,44 @@
 
 testing commit
 
-## Combat prototype (combat_proto.py)
-Run from anywhere: python combat_proto.py  (asset paths are relative to this folder)
+## Running
+- python main.py            the full game: walk the path (A / D), walk into an enemy to fight it
+- python combat_proto.py    one test fight against the Lantern Stag
+- python combat_proto.py maw   (or moth / stag / pilgrim / bellwether) to test another enemy
+Asset paths are relative to this folder, so these work from any directory.
 
-Controls
+## Files
+- main.py          overworld: walking, camera, enemies on the path, starts fights, permadeath
+- combat_proto.py  the typing combat. main.py calls run_combat(enemy_key, player_hp)
+- enemies.py       one table with every enemy (spritesheet frames, HP, attack, flavour text)
+- sprites.py       image helpers shared by both (cut frames, align by feet, outline, ...)
+- scene.py         forest parallax background
+- tools/measure_frames.py   re-measures an enemy sheet's frame rectangles (needs numpy + pillow)
+
+## Starting a fight
+Walking into an enemy plays a short encounter (about 1.5 s: "!", the enemy rears up, the screen
+closes to black), then combat opens with an intro (about 2.6 s: fade in, both fighters step in,
+the enemy's name, "Ready... CAST!"). Nothing you type counts until "CAST!", so keys held or
+pressed while walking can't end up in the spell box. The win/lose box also ignores keys for 1 s.
+Timings: ENCOUNTER_FRAMES in main.py, INTRO_TIME and friends at the top of combat_proto.py.
+
+## Combat controls
 - Type a spell's incantation, then Enter to cast it
 - Tab / Shift+Tab, Up / Down, or 1-6: switch the selected spell
 - Typing the start of another spell's incantation switches to that spell automatically
 - A misspelled incantation fizzles and the enemy gets a free turn
-- R: fight again after a win/loss, Esc: quit
+- Standalone test fight: R fights again after a win/loss. From main.py: Enter continues
+- Esc: quit
 
-Adding a spell: write an effect function (see spark_effect), then add a Spell(...) to the grimoire list.
+## Critical hits (typing speed)
+Speed is measured in words per minute (1 word = 5 letters), from the first letter typed until Enter.
+- 121+ WPM: 50%   101-120: 33%   81-100: 25%   61-80: 15%   60 or less: 5%
+A crit does 1.5x damage (CRIT_MULTIPLIER). Ward and Mend can't crit. The table is CRIT_TABLE
+at the top of combat_proto.py. The input box shows your live WPM and crit chance while typing.
 
-Layout knobs (top of combat_proto.py): GROUND_Y, PLAYER_FEET, ENEMY_FEET, ENEMY_TARGET_HEIGHT,
+## Adding things
+- A spell: write an effect function (see spark_effect), then add a Spell(...) to the grimoire list.
+- An enemy: add an entry to ENEMIES in enemies.py, then put it on the path in ENEMY_PLACEMENTS in main.py.
+
+Layout knobs (top of combat_proto.py): GROUND_Y, PLAYER_FEET, ENEMY_X,
 SCENE_PATH_Y (where the dirt path is in the scene art; the scene is shifted so it lines up with GROUND_Y).
-Lantern Stag frames are listed by hand in STAG_IDLE_RECTS / STAG_ATTACK_RECTS (x, y, w, h) because the
-art spills over the sheet's grid lines. If the sheet is re-exported, re-measure these.
