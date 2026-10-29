@@ -1,5 +1,6 @@
-import pygame
+import os
 import sys
+import pygame
 
 pygame.init()
 
@@ -11,25 +12,41 @@ pygame.display.set_caption("2d project")
 clock = pygame.time.Clock()
 FPS = 60
 
-BACKGROUND_IMAGE_PATH = None
+# Build paths from this file's folder so the game runs from any directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SPRITE_DIR = os.path.join(BASE_DIR, "assets", "Sprites", "MC (simplified)")
 
-background_image = None
-if BACKGROUND_IMAGE_PATH:
-    try:
-        background_image = pygame.image.load(BACKGROUND_IMAGE_PATH).convert()
-        background_image = pygame.transform.scale(background_image, (SCREEN_WIDTH, SCREEN_HEIGHT))
-    except pygame.error as e:
-        print(f"Could not load background image: {e}")
+# The y position of the ground. The player's FEET are placed here.
+GROUND_Y = 476  # the dirt path in the scene art (scene is scaled to 600 px tall)
 
-west_frames = [
-    pygame.image.load("assets/Sprites/MC (simplified)/child_west1.png").convert_alpha(),
-    pygame.image.load("assets/Sprites/MC (simplified)/child_west2.png").convert_alpha()
-]
+# Forest parallax from scene.py (falls back to a flat color if the art is missing)
+try:
+    from scene import ParallaxBackground
+    background = ParallaxBackground(SCREEN_HEIGHT)
+except Exception as e:
+    print(f"Could not load scene background: {e}")
+    background = None
 
-east_frames = [
-    pygame.image.load("assets/Sprites/MC (simplified)/child_east1.png").convert_alpha(),
-    pygame.image.load("assets/Sprites/MC (simplified)/child_east2.png").convert_alpha()
-]
+
+def load_frames(names):
+    return [pygame.image.load(os.path.join(SPRITE_DIR, name)).convert_alpha() for name in names]
+
+
+west_frames = load_frames(["child_west1.png", "child_west2.png"])
+east_frames = load_frames(["child_east1.png", "child_east2.png"])
+
+
+def crop_to_content(frames):
+    """Trim the transparent border, using one box for every frame so nothing jitters.
+
+    Without this, empty pixels under the sprite make it float above the ground,
+    and frames with different padding make it wobble while walking.
+    """
+    box = frames[0].get_bounding_rect()
+    for img in frames[1:]:
+        box.union_ip(img.get_bounding_rect())
+    return [img.subsurface(box).copy() for img in frames]
+
 
 SCALE_FACTOR = 3
 def scale_frames(frames):
@@ -39,12 +56,16 @@ def scale_frames(frames):
         scaled.append(pygame.transform.scale(img, (w * SCALE_FACTOR, h * SCALE_FACTOR)))
     return scaled
 
-west_frames = scale_frames(west_frames)
-east_frames = scale_frames(east_frames)
 
+# Crop west and east together so both directions share the same size and feet line
+all_frames = crop_to_content(west_frames + east_frames)
+west_frames = scale_frames(all_frames[:2])
+east_frames = scale_frames(all_frames[2:])
+
+# player_x is the CENTER of the player, so turning around doesn't shift the sprite
 player_x = SCREEN_WIDTH // 2
-player_y = SCREEN_HEIGHT - 200
 player_speed = 4
+half_width = east_frames[0].get_width() // 2
 
 facing_right = True
 is_moving = False
@@ -60,6 +81,7 @@ while True:
 
     keys = pygame.key.get_pressed()
     is_moving = False
+    old_x = player_x
 
     if keys[pygame.K_a]:
         player_x -= player_speed
@@ -70,7 +92,7 @@ while True:
         facing_right = True
         is_moving = True
 
-    player_x = max(0, min(SCREEN_WIDTH - west_frames[0].get_width(), player_x))
+    player_x = max(half_width, min(SCREEN_WIDTH - half_width, player_x))
 
     if is_moving:
         anim_timer += 1
@@ -81,8 +103,9 @@ while True:
         animation_index = 0
         anim_timer = 0
 
-    if background_image:
-        screen.blit(background_image, (0, 0))
+    if background:
+        background.update(player_x - old_x)
+        background.draw(screen)
     else:
         screen.fill((50, 100, 150))
 
@@ -91,7 +114,8 @@ while True:
     else:
         current_image = west_frames[animation_index]
 
-    screen.blit(current_image, (player_x, player_y))
+    # Anchor by the feet: midbottom puts the bottom-center of the sprite on the ground
+    screen.blit(current_image, current_image.get_rect(midbottom=(player_x, GROUND_Y)))
 
     pygame.display.flip()
     clock.tick(FPS)

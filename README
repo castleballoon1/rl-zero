@@ -1,3 +1,20 @@
 2d game
 
 testing commit
+
+## Combat prototype (combat_proto.py)
+Run from anywhere: python combat_proto.py  (asset paths are relative to this folder)
+
+Controls
+- Type a spell's incantation, then Enter to cast it
+- Tab / Shift+Tab, Up / Down, or 1-6: switch the selected spell
+- Typing the start of another spell's incantation switches to that spell automatically
+- A misspelled incantation fizzles and the enemy gets a free turn
+- R: fight again after a win/loss, Esc: quit
+
+Adding a spell: write an effect function (see spark_effect), then add a Spell(...) to the grimoire list.
+
+Layout knobs (top of combat_proto.py): GROUND_Y, PLAYER_FEET, ENEMY_FEET, ENEMY_TARGET_HEIGHT,
+SCENE_PATH_Y (where the dirt path is in the scene art; the scene is shifted so it lines up with GROUND_Y).
+Lantern Stag frames are listed by hand in STAG_IDLE_RECTS / STAG_ATTACK_RECTS (x, y, w, h) because the
+art spills over the sheet's grid lines. If the sheet is re-exported, re-measure these.
