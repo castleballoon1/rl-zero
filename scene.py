@@ -24,11 +24,11 @@ class ParallaxLayer:
         self.offset += camera_dx * self.speed + self.drift
         self.offset %= self.width  # wrap so the number never grows forever
 
-    def draw(self, screen):
+    def draw(self, screen, y=0):
         # Draw the image side by side enough times to cover the screen
         x = -self.offset
         while x < screen.get_width():
-            screen.blit(self.image, (x, 0))
+            screen.blit(self.image, (x, y))
             x += self.width
 
 
@@ -54,6 +54,7 @@ class ParallaxBackground:
         for layer in self.layers:
             layer.update(camera_dx)
 
-    def draw(self, screen):
+    def draw(self, screen, y=0):
+        # y shifts the whole scene up/down (e.g. to line its path up with the ground)
         for layer in self.layers:
-            layer.draw(screen)
+            layer.draw(screen, y)
