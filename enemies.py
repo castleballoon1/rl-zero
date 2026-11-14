@@ -22,7 +22,7 @@ ENEMIES = {
     "stag": {
         'name': "Lantern Stag",
         'short': "stag",                       # used in messages: "the stag is burning"
-        'sheet': os.path.join("Lantern_Stag_Spritesheet", "LanternStag.png"),
+        'sheet': os.path.join("Lantern_Stag_Spritesheet", "Lantern_Stag.png"),
         'faces_right': True,                   # drawn facing right, so flip it to face the player
         'height': 230,                         # height on screen in combat, in pixels
         'hover': 0,                            # pixels above the ground (for flying enemies)
