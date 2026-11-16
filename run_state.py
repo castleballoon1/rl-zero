@@ -7,7 +7,7 @@ import json
 import os
 import random
 
-from settings import (START_HP, START_SANITY, MAX_SANITY, MAX_SHIELD,
+from settings import (START_SANITY, MAX_SANITY, MAX_SHIELD,
                       GRIMOIRE_SIZE, SAVE_FILE)
 from spells import OwnedSpell, STARTER_SPELLS, SPELLS, default_unlocked
 
@@ -59,9 +59,8 @@ class RunState:
     def __init__(self, name, seed):
         self.name = name or "Lost Boy"
         self.seed = seed if seed else str(random.randint(10000, 99999))
-        self.max_hp = START_HP
-        self.hp = START_HP
-        self.sanity = START_SANITY
+        self.max_sanity = MAX_SANITY
+        self.sanity = START_SANITY     # his only health
         self.shield = 0.0
         self.act = 1
         self.grimoire = [OwnedSpell(k) for k in STARTER_SPELLS]
@@ -93,8 +92,8 @@ class RunState:
         if key not in self.relics:
             self.relics.append(key)
             if key == "charm":
-                self.max_hp += 25
-                self.hp += 25
+                self.max_sanity += 20
+                self.sanity += 20
 
     def score(self):
         return (self.kills * 40 + self.casts * 5 + self.deflects * 25
@@ -111,22 +110,25 @@ class RunState:
         elif self.has_room():
             self.grimoire.append(OwnedSpell(key, 1, potency))
 
-    def heal(self, amount):
-        self.hp = min(self.max_hp, self.hp + amount)
-
     def change_sanity(self, amount):
-        self.sanity = max(0.0, min(MAX_SANITY, self.sanity + amount))
+        """Gain sanity, or pay it. Paying can never kill: it stops at 1.
+
+        Spell costs, a staring eye and a tolling bell all go through here.
+        Only hurt() can take the last point.
+        """
+        floor = min(1.0, self.sanity)
+        self.sanity = max(floor, min(self.max_sanity, self.sanity + amount))
 
     def add_shield(self, amount):
         self.shield = min(MAX_SHIELD, self.shield + amount)
 
-    def take_damage(self, amount):
-        """Shield absorbs first. Returns damage that reached health."""
+    def hurt(self, amount):
+        """A blow. The shield absorbs first. Returns the sanity actually lost."""
         absorbed = min(self.shield, amount)
         self.shield -= absorbed
-        rest = amount - absorbed
-        self.hp = max(0.0, self.hp - rest)
-        return rest
+        lost = min(self.sanity, amount - absorbed)
+        self.sanity -= lost
+        return lost
 
     @property
     def accuracy(self):
@@ -135,7 +137,7 @@ class RunState:
 
     @property
     def dead(self):
-        return self.hp <= 0 or self.sanity <= 0
+        return self.sanity <= 0
 
     def next_act(self):
         self.act += 1

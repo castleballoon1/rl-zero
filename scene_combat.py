@@ -19,17 +19,20 @@ import pygame
 import art
 import ui
 from bestiary import ACTS
-from entities import Layer, CombatEnemy, Projectile, FloatingText, burst, HERO_LOOK
+from entities import (Layer, CombatEnemy, Projectile, FloatingText, burst, Ring,
+                      RuneCircle)
 from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE, MISS_COL,
                       ELEMENT_COLORS, SANITY_COL, DEFLECT_ACCURACY,
                       DEFLECT_TIME_FRACTION, REFLECT_FRACTION, GREEN, SHIELD_COL)
 from settings import (CRIT_MULT, FOCUS_MAX, FOCUS_ACCURACY, FOCUS_BREAK,
-                      FOCUS_BONUS, HEAVY_DAMAGE)
-from spells import cast_amount, crit_chance, KIND_LABEL
+                      FOCUS_BONUS, HEAVY_DAMAGE, BURNOUT_CASTS, HEAT_FADE_TIME,
+                      BURNOUT_TIME, SOOTHE_FADE)
+from spells import cast_amount, crit_chance, effect_text, cost_text
 from typing_engine import TypingSession
 from words import corrupt, sanity_tier, defense_prompt, TIER_NAMES, LETTERS
 
-PANEL_Y = HEIGHT - 195            # top of the grimoire panel
+ROW_H = 46                        # one spell in the grimoire panel
+PANEL_Y = HEIGHT - (4 * ROW_H + 30)   # top of the grimoire panel
 STAGE_GROUND = PANEL_Y - 15       # where everyone's feet stand
 PLAYER_X = 150
 HERO_TALL = 120
@@ -47,6 +50,7 @@ class CombatScene:
         self.game = game
         self.run = game.run
         self.boss = boss
+        self.music = "boss" if boss else "battle"
         self.encounter_index = encounter_index
         self.rng = random.Random()
         info = ACTS[self.run.act]
@@ -72,7 +76,15 @@ class CombatScene:
             for e in self.enemies:
                 e.timer += 3.0
                 e.timer_max = e.timer
-        self.hexed = set()           # spell keys scrambled by a HEX
+        self.hexed = set()           # spell keys scrambled by a Hex
+        # Burnout: every cast heats its spell; heat fades with time. A spell
+        # cast too often in a row burns out and cannot be cast for a while.
+        self.heat = {}               # spell key -> heat (one cast = 1.0)
+        self.burnt = {}              # spell key -> seconds left burnt out
+        self.empower = 0.0           # bonus waiting for the next attack (Whisper Pact)
+        self.regen = [0.0, 0.0]      # [sanity per second, seconds left] (Mend)
+        self.soothes = 0             # healing spells cast this fight (each is weaker)
+        self.effects = []            # casting circles and impact rings
 
         self.hero = art.hero_frames(HERO_TALL)
         self.player_anim = 0.0
@@ -184,7 +196,9 @@ class CombatScene:
     def count_key(self, ok):
         if ok:
             self.run.keys_ok += 1
-            self.game.sound.play("key")
+            # the click climbs in pitch as the word nears its end
+            typing = self.defense["session"] if self.defense else self.session
+            self.game.sound.play_key(typing.progress if typing else 0.0)
         else:
             self.run.keys_miss += 1
             self.miss_flash = 0.15
@@ -201,7 +215,15 @@ class CombatScene:
             return
         new = self.buffer + ch
         order = [s.key for s in self.run.grimoire]
-        candidates = [k for k in order if self.texts[k].startswith(new)]
+        matching = [k for k in order if self.texts[k].startswith(new)]
+        candidates = [k for k in matching if self.burnt.get(k, 0) <= 0]
+        if matching and not candidates:
+            # only burnt-out spells start like this: say so, but it is not a typo
+            key = matching[0]
+            self.say(f"{self.run.get(key).defn.name} is burnt out for "
+                     f"{self.burnt[key]:.0f} more seconds.", 1.5)
+            self.game.sound.play("miss")
+            return
         if not candidates:
             self.count_key(False)
             if self.buffer:
@@ -241,11 +263,19 @@ class CombatScene:
         cps = session.cps(self.t)
         amount, crit = cast_amount(owned, accuracy, cps, self.rng.random(), run.focus,
                                    2.5 if run.has("lens") else CRIT_MULT)
+        # Paying for a spell never takes the last point of sanity, but a spell
+        # you cannot fully pay for comes out weaker, in proportion.
         cost = self.cost(spell)
+        paid = min(cost, max(0.0, run.sanity - 1))
+        starved = cost > 0 and paid < cost
+        if starved:
+            amount *= max(0.25, paid / cost)
         run.change_sanity(-cost)
         run.casts += 1
         # focus: clean casts build a streak, sloppy ones break it
         if accuracy >= FOCUS_ACCURACY:
+            if run.focus < FOCUS_MAX:
+                self.game.sound.play("focus")
             run.focus = min(FOCUS_MAX, run.focus + 1)
         elif accuracy < FOCUS_BREAK:
             run.focus = 0
@@ -254,50 +284,78 @@ class CombatScene:
         if run.casts >= 40:
             self.game.achieve("flare")
         self.clear_input()
-        self.cast_anim = 0.4
-        color = ELEMENT_COLORS[spell.element]
-        px, py = self.player_center()
-        line = f"{spell.name}  {accuracy * 100:.0f}%  {cps:.1f} c/s"
-        self.floaters.append(FloatingText(line, (px + 40, py - 70), WHITE, 22, 1.6, 25))
-        if crit:
-            self.floaters.append(FloatingText("CRIT!", (px + 40, py - 95), GOLD, 34, 1.4, 30))
-            self.game.sound.play("crit")
-        else:
-            self.game.sound.play("cast")
-        burst(self.particles, (px + 20, py - 20), color, 14, speed=(40, 160))
+        # burnout: the same spell again and again overheats
+        self.heat[key] = self.heat.get(key, 0.0) + 1.0
+        if self.heat[key] >= BURNOUT_CASTS:
+            self.heat[key] = 0.0
+            self.burnt[key] = BURNOUT_TIME
+            self.game.sound.play("burnout")
+            self.say(f"{spell.name} burns out! Use another spell for {BURNOUT_TIME:.0f} seconds.")
 
         kind = spell.kind
+        color = ELEMENT_COLORS[spell.element]
+        px, py = self.player_center()
+        attack = kind in ("damage", "drain", "dot", "execute", "aoe", "slow")
+        if attack and self.empower:
+            amount *= 1 + self.empower
+            self.empower = 0.0
+            self.floaters.append(FloatingText("Empowered!", (px + 40, py - 118), (190, 120, 255), 26))
+
+        # the casting animation: he raises the book, a rune circle opens at his
+        # feet, and the bolt leaves a moment later
+        self.cast_anim = 0.55
+        self.effects.append(RuneCircle((PLAYER_X, STAGE_GROUND - 3), color))
+        if starved:
+            self.say("Too little sanity left: the spell comes out weak.", 2.0)
+        line = f"{spell.name}  {accuracy * 100:.0f}%  {cps:.1f} c/s"
+        self.floaters.append(FloatingText(line, (px + 40, py - 78), WHITE, 22, 1.6, 25))
+        if crit:
+            self.floaters.append(FloatingText("Crit!", (px + 40, py - 104), GOLD, 34, 1.4, 30))
+            self.game.sound.play("crit")
+        self.game.sound.play_cast(spell.element)
+        burst(self.particles, (px + 20, py - 20), color, 18, speed=(40, 180))
+
         start = (px + 22, py - 22)
+        release = 0.16                 # the bolt waits for the circle to open
         if kind in ("damage", "drain", "dot", "execute"):
             target = self.current_target()
             if target:
                 self.projectiles.append(Projectile(
                     start, target, color,
                     lambda e, s=spell, a=amount, c=crit: self.hit(e, s, a, c),
-                    size=8 + int(spell.letters / 3)))
+                    size=8 + int(spell.letters / 3), delay=release))
         elif kind in ("aoe", "slow"):
             for i, e in enumerate(self.alive()):
                 self.projectiles.append(Projectile(
                     start, e, color,
                     lambda en, s=spell, a=amount, c=crit: self.hit(en, s, a, c),
-                    size=8, delay=i * 0.08))
-        elif kind == "heal":
-            run.heal(amount)
-            self.floaters.append(FloatingText(f"+{amount:.0f} HP", (px, py - 40), GREEN, 32))
-            burst(self.particles, (px, py), GREEN, 25)
-            self.game.sound.play("heal")
+                    size=8, delay=release + i * 0.08))
+        else:
+            # spells cast on himself: a ring of light closes around him
+            self.effects.append(Ring((px, py), color, radius=90, life=0.5))
+            self.game.sound.play({"shield": "shield", "pact": "pact"}.get(kind, "heal"))
+        if kind in ("sanity", "regen"):
+            # every healing spell in one fight is weaker than the last
+            amount *= SOOTHE_FADE ** self.soothes
+            self.soothes += 1
+        if kind == "sanity":
+            run.change_sanity(amount)
+            self.floaters.append(FloatingText(f"+{amount:.0f} sanity", (px, py - 40), SANITY_COL, 30))
+            for hexed in list(self.hexed):          # Clarity also lifts every hex
+                self.hexed.discard(hexed)
+                if hexed != key:
+                    self.roll_text(hexed)
+        elif kind == "regen":
+            self.regen = [amount / 6, 6.0]
+            self.floaters.append(FloatingText(f"+{amount:.0f} sanity over 6 s", (px, py - 40),
+                                              GREEN, 26))
         elif kind == "pact":
-            run.heal(amount)
-            self.floaters.append(FloatingText(f"+{amount:.0f} HP", (px, py - 40), GREEN, 32))
-            burst(self.particles, (px, py), (150, 60, 220), 30)
+            self.empower = amount / 100
+            self.floaters.append(FloatingText(f"Next spell +{amount:.0f}%", (px, py - 40),
+                                              (190, 120, 255), 28))
         elif kind == "shield":
             run.add_shield(amount)
             self.floaters.append(FloatingText(f"+{amount:.0f} shield", (px, py - 40), SHIELD_COL, 30))
-            self.game.sound.play("heal")
-        elif kind == "sanity":
-            run.change_sanity(amount)
-            self.floaters.append(FloatingText(f"+{amount:.0f} sanity", (px, py - 40), SANITY_COL, 30))
-            self.game.sound.play("heal")
         if cost:
             self.floaters.append(FloatingText(f"-{cost:.0f} sanity", (px - 30, py + 10),
                                               SANITY_COL, 22, 1.2, 30))
@@ -314,11 +372,11 @@ class CombatScene:
         cx, cy = enemy.center
         if spell.kind == "dot":
             enemy.dots.append([amount / 6, 6, 1.0])
-            self.floaters.append(FloatingText("ROTTING", (cx, cy - 40), color, 28))
+            self.floaters.append(FloatingText("Rotting", (cx, cy - 40), color, 28))
         else:
             if spell.kind == "execute" and enemy.hp < enemy.max_hp * 0.3:
                 amount *= 2
-                self.floaters.append(FloatingText("EXECUTED", (cx, cy - 62), color, 26))
+                self.floaters.append(FloatingText("Executed", (cx, cy - 62), color, 26))
             dealt = enemy.take(amount)
             self.run.best_hit = max(self.run.best_hit, int(amount))
             size = 44 if crit else 32
@@ -326,17 +384,18 @@ class CombatScene:
                                               GOLD if crit else WHITE, size))
             if spell.lifesteal:
                 heal = dealt * spell.lifesteal
-                self.run.heal(heal)
+                self.run.change_sanity(heal)
                 px, py = self.player_center()
-                self.floaters.append(FloatingText(f"+{heal:.0f} HP", (px, py - 40), GREEN, 28))
+                self.floaters.append(FloatingText(f"+{heal:.0f} sanity", (px, py - 40), GREEN, 28))
             if spell.chill:
                 enemy.timer += spell.chill
                 enemy.timer_max = max(enemy.timer_max, enemy.timer)
             if spell.kind == "slow":
                 enemy.timer += 4.0
                 enemy.timer_max = max(enemy.timer_max, enemy.timer)
-                self.floaters.append(FloatingText("DELAYED", (cx, cy - 60), color, 24))
+                self.floaters.append(FloatingText("Delayed", (cx, cy - 60), color, 24))
         burst(self.particles, (cx, cy), color, 30 if crit else 16)
+        self.effects.append(Ring((cx, cy), color, radius=90 if crit else 60))
         self.game.sound.play("hit")
         if crit:
             self.game.add_shake(0.3, 8)
@@ -347,24 +406,25 @@ class CombatScene:
             enemy.dead = True
             enemy.hp = 0
             self.run.kills += 1
+            self.game.sound.play("enemy_die")
             burst(self.particles, enemy.center, (30, 20, 40), 40, speed=(80, 300))
             burst(self.particles, enemy.center, (200, 60, 80), 20)
             self.defense_queue = [e for e in self.defense_queue if e is not enemy]
             enemy.windup = False
             if self.defense and self.defense["enemy"] is enemy:
-                self.floaters.append(FloatingText("INTERRUPTED", (WIDTH // 2, 150), GOLD, 30))
+                self.floaters.append(FloatingText("Interrupted", (WIDTH // 2, 150), GOLD, 30))
                 self.defense = None
 
     # --- defending -------------------------------------------------------------
     def start_defense(self, enemy):
-        hp_fraction = self.run.hp / self.run.max_hp
+        hp_fraction = self.run.sanity / self.run.max_sanity    # sanity is his health
         if enemy.trait == "dirge":
             hp_fraction = min(hp_fraction, 0.6)   # never the short words
         heavy = enemy.next_is_heavy()
         enemy.attacks += 1
         if heavy:
             # a heavy blow asks for a word one step harder than your health would
-            hp_fraction = max(0.16, hp_fraction - 0.34) if hp_fraction > 0.16 else hp_fraction
+            hp_fraction = max(0.21, hp_fraction - 0.3) if hp_fraction > 0.21 else hp_fraction
         word, limit = defense_prompt(hp_fraction, self.rng)
         if self.run.has("scarf"):
             limit += 0.7
@@ -372,7 +432,7 @@ class CombatScene:
                             limit=limit, elapsed=0.0, heavy=heavy,
                             damage=enemy.dmg * (HEAVY_DAMAGE if heavy else 1.0))
         enemy.windup = True      # it rears up while you type
-        self.game.sound.play("warn")
+        self.game.sound.play("heavy" if heavy else "warn")
 
     def type_defense(self, ch):
         d = self.defense
@@ -396,23 +456,21 @@ class CombatScene:
                     self.game.achieve("thorn")
                 enemy.take(reflect)
                 self.run.deflects += 1
-                self.floaters.append(FloatingText("DEFLECT!", (px + 30, py - 70), (150, 220, 255), 40))
+                self.floaters.append(FloatingText("Deflect!", (px + 30, py - 70), (150, 220, 255), 40))
                 self.floaters.append(FloatingText(f"{reflect:.0f}", (enemy.center[0], enemy.center[1] - 30),
                                                   (150, 220, 255), 30))
                 burst(self.particles, (px + 40, py - 10), (150, 220, 255), 25)
                 self.game.sound.play("deflect")
                 self.check_death(enemy)
             else:
-                self.floaters.append(FloatingText("DODGE", (px + 30, py - 70), WHITE, 36))
-                self.game.sound.play("select")
+                self.floaters.append(FloatingText("Dodge", (px + 30, py - 70), WHITE, 36))
+                self.game.sound.play("dodge")
             return
         fraction = 0.5 if session.progress >= 0.5 else 1.0
-        label = "GRAZED" if fraction < 1 else "HIT"
-        lost = self.run.take_damage(d["damage"] * fraction)
-        dread = enemy.dread * fraction
-        self.run.change_sanity(-dread)
-        self.floaters.append(FloatingText(f"{label} -{lost:.0f}", (px, py - 60), MISS_COL, 34))
-        self.floaters.append(FloatingText(f"-{dread:.0f} sanity", (px, py - 30), SANITY_COL, 24))
+        label = "Grazed" if fraction < 1 else "Hit"
+        lost = self.run.hurt(d["damage"] * fraction)     # a blow is the one thing that can kill
+        self.floaters.append(FloatingText(f"{label}!  -{lost:.0f} sanity", (px + 20, py - 60),
+                                          MISS_COL, 34))
         burst(self.particles, (px, py), (200, 40, 50), 20)
         self.hurt_flash = 0.3
         self.game.add_shake(0.35, 10 if fraction == 1 else 5)
@@ -430,8 +488,8 @@ class CombatScene:
     def toll(self, enemy, allies):
         """The bell rings instead of a blow: allies hurry, or your mind pays."""
         cx, cy = enemy.center
-        self.floaters.append(FloatingText("TOLL", (cx, cy - 50), (160, 255, 220), 30))
-        self.game.sound.play("warn")
+        self.floaters.append(FloatingText("Toll", (cx, cy - 50), (160, 255, 220), 30))
+        self.game.sound.play("toll")
         if allies:
             for other in allies:
                 other.timer = max(0.3, other.timer - 2.0)
@@ -448,6 +506,7 @@ class CombatScene:
             return
         key = self.rng.choice(keys)
         self.hexed.add(key)
+        self.game.sound.play("hex")
         if self.locked == key or self.buffer:
             self.clear_input()
         self.roll_text(key)
@@ -465,6 +524,9 @@ class CombatScene:
         self.miss_flash = max(0.0, self.miss_flash - dt)
         self.message_timer = max(0.0, self.message_timer - dt)
         self.particles.update(dt)
+        for effect in self.effects:
+            effect.update(dt)
+        self.effects = [effect for effect in self.effects if effect.alive]
         for f in self.floaters:
             f.update(dt)
         self.floaters = [f for f in self.floaters if f.alive]
@@ -482,7 +544,8 @@ class CombatScene:
                 if self.outcome == "win":
                     self.game.combat_won(self)
                 else:
-                    self.game.game_over(self.outcome)
+                    self.game.game_over("madness")
+                self.outcome_timer = 99.0     # the scene is over; do not ask twice
             return
         if self.intro > 0:
             self.intro -= dt
@@ -500,6 +563,17 @@ class CombatScene:
         for p in self.projectiles:
             p.update(dt)
         self.projectiles = [p for p in self.projectiles if not p.done]
+
+        # burnout cools, Mend mends
+        for key in list(self.heat):
+            self.heat[key] = max(0.0, self.heat[key] - dt / HEAT_FADE_TIME)
+        for key in list(self.burnt):
+            self.burnt[key] -= dt
+            if self.burnt[key] <= 0:
+                del self.burnt[key]
+        if self.regen[1] > 0:
+            self.regen[1] -= dt
+            self.run.change_sanity(self.regen[0] * dt)
 
         if self.defense:
             self.defense["elapsed"] += dt
@@ -524,19 +598,20 @@ class CombatScene:
                     self.run.change_sanity(-6)
                     self.say(e.rage_text + "  (-6 sanity)", 3.0)
                     self.game.add_shake(0.6, 10)
-                    self.game.sound.play("warn")
+                    self.game.sound.play("rage")
             self.defense_queue = [e for e in self.defense_queue if not e.dead]
             if self.defense_queue:
                 self.start_defense(self.defense_queue.pop(0))
 
         if self.run.dead:
-            self.outcome = "madness" if self.run.sanity <= 0 else "wounds"
-            self.outcome_timer = 2.2
+            # his mind breaks: a beat of stillness, then the death scene
+            self.outcome = "madness"
+            self.outcome_timer = 0.9
             self.clear_input()
-            col = (150, 60, 220) if self.outcome == "madness" else (200, 40, 50)
-            burst(self.particles, self.player_center(), col, 50, speed=(40, 220), life=(0.6, 1.8))
+            self.hurt_flash = 0.9
+            burst(self.particles, self.player_center(), (200, 30, 40), 50,
+                  speed=(40, 220), life=(0.6, 1.8))
             self.defense = None
-            self.game.sound.play("death")
             return
         if not self.alive() and not self.projectiles:
             self.outcome = "win"
@@ -545,17 +620,8 @@ class CombatScene:
 
     # --- drawing -----------------------------------------------------------------
     def hero_image(self):
-        """The boy's picture: his look follows his sanity, his pose the moment."""
-        tier = sanity_tier(self.run.sanity)
-        poses = self.hero["looks"][HERO_LOOK[tier]]["right"]
-        if self.outcome in ("madness", "wounds"):
-            t = 2.2 - self.outcome_timer
-            if self.hero["death"]:
-                return self.hero["death"][min(3, int(t / 0.45))]
-            # no painted death yet: he tips over and fades
-            fallen = pygame.transform.rotate(poses["idle"], min(90, t * 150))
-            fallen.set_alpha(max(0, int(255 * (1 - max(0.0, t - 0.9) / 1.2))))
-            return fallen
+        """The boy's picture: his look and eye follow his sanity, his pose the moment."""
+        poses = art.hero_poses(self.hero, self.run.sanity, self.run.max_sanity)
         if self.cast_anim > 0:
             return poses["cast"]
         return poses["idle"]
@@ -585,11 +651,29 @@ class CombatScene:
         surface.blit(shade, shade.get_rect(center=(PLAYER_X, STAGE_GROUND - 2)))
         light = art.glow(100, (150, 220, 255), 70)
         surface.blit(light, light.get_rect(center=(px, py)))
+        for effect in self.effects:
+            effect.draw(surface)
+        if self.session and not self.outcome:
+            # the grimoire gathers light as the incantation nears its end
+            charge = self.session.progress
+            spark = ELEMENT_COLORS[self.run.get(self.locked).defn.element]
+            g = art.glow(int(26 + 46 * charge), spark, int(110 + 140 * charge))
+            surface.blit(g, g.get_rect(center=(px + 16, py + 4)))
+            for k in range(3):
+                angle = self.player_anim * 7 + k * math.tau / 3
+                reach = 46 - 26 * charge
+                pygame.draw.circle(surface, spark, (px + 16 + math.cos(angle) * reach,
+                                                    py + 4 + math.sin(angle) * reach * 0.6), 3)
         img = self.hero_image()
+        if self.cast_anim > 0:
+            # a small hop as the spell leaves
+            lift = int(math.sin((1 - self.cast_anim / 0.55) * math.pi) * 10)
+        else:
+            lift = 0
         if self.hurt_flash > 0:
             img = img.copy()
             img.fill((160, 0, 0), special_flags=pygame.BLEND_RGB_ADD)
-        surface.blit(img, img.get_rect(midbottom=(PLAYER_X, STAGE_GROUND)))
+        surface.blit(img, img.get_rect(midbottom=(PLAYER_X, STAGE_GROUND - lift)))
         if self.run.shield > 0:
             r = 66 + int(math.sin(self.player_anim * 4) * 2)
             bubble = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
@@ -608,14 +692,14 @@ class CombatScene:
         self.draw_focus(surface)
         self.draw_grimoire(surface)
         if self.message_timer > 0:
-            for i, line in enumerate(ui.wrap(self.message, ui.font(24), 350)):
-                ui.draw_text(surface, ui.font(24), line, BONE, topleft=(16, 106 + i * 21))
+            for i, line in enumerate(ui.wrap(self.message, ui.font(24), 330)):
+                ui.draw_text(surface, ui.font(24), line, BONE, topleft=(16, 92 + i * 17))
         if self.intro > 0:
             title = self.enemies[0].name if self.boss else "Shadows close in!"
             ui.panel(surface, (WIDTH // 2 - 260, 120, 520, 90), 210)
-            ui.draw_text(surface, ui.font(52), title, BONE, center=(WIDTH // 2, 155))
+            ui.draw_text(surface, ui.font(52), title, BONE, center=(WIDTH // 2, 152))
             ui.draw_text(surface, ui.font(22), "Type an incantation to cast it",
-                         GRAY, center=(WIDTH // 2, 190))
+                         GRAY, center=(WIDTH // 2, 192))
         if self.defense:
             self.draw_defense(surface)
         if self.outcome == "win":
@@ -623,16 +707,19 @@ class CombatScene:
 
     def draw_focus(self, surface):
         focus = self.run.focus
-        ui.draw_text(surface, ui.font(20), "Focus", GOLD if focus else GRAY, topleft=(16, 80))
+        ui.draw_text(surface, ui.font(20), "Focus", GOLD if focus else GRAY, topleft=(16, 66))
         for i in range(FOCUS_MAX):
-            center = (84 + i * 14, 88)
+            center = (66 + i * 14, 74)
             if i < focus:
                 pygame.draw.circle(surface, GOLD, center, 5)
             else:
                 pygame.draw.circle(surface, GRAY, center, 5, 1)
         if focus:
             ui.draw_text(surface, ui.font(20), f"+{focus * FOCUS_BONUS * 100:.0f}%", GOLD,
-                         topleft=(160, 80))
+                         topleft=(142, 66))
+        if self.empower:
+            ui.draw_text(surface, ui.font(20), f"Pact: next spell +{self.empower * 100:.0f}%",
+                         (190, 120, 255), topleft=(190, 66))
 
     def draw_defense(self, surface):
         d = self.defense
@@ -643,58 +730,74 @@ class CombatScene:
         ui.panel(surface, (cx - 280, y0, 560, 118), 240, border=edge)
         if d["heavy"]:
             pygame.draw.rect(surface, edge, (cx - 280, y0, 560, 118), 3)
-            title = "HEAVY BLOW!  " + d["enemy"].attack_text
+            title = "Heavy blow!  " + d["enemy"].attack_text
         else:
-            title = d["enemy"].attack_text + "  DEFEND:"
+            title = d["enemy"].attack_text + "  Defend:"
         title = ui.fit(title, ui.font(24), 540)
         ui.draw_text(surface, ui.font(24), title, (255, 150, 230) if d["heavy"] else (255, 140, 120),
-                     center=(cx, y0 + 17))
+                     center=(cx, y0 + 15))
         size = 34
-        width = ui.font(size, mono=True).size("m")[0] * len(word)
-        ui.draw_incantation(surface, word, session.pos, (cx - width // 2, y0 + 38), size)
+        width = ui.incantation_width(word, size)
+        ui.draw_incantation(surface, word, session.pos, (cx - width // 2, y0 + 32), size)
         left = 1 - d["elapsed"] / d["limit"]
         deflect_mark = 1 - DEFLECT_TIME_FRACTION
-        bar = (cx - 240, y0 + 80, 480, 10)
+        bar = (cx - 240, y0 + 78, 480, 10)
         ui.draw_bar(surface, bar, left, (220, 80, 70) if left < deflect_mark else (240, 200, 100))
         mx = bar[0] + int(bar[2] * deflect_mark)
         pygame.draw.line(surface, WHITE, (mx, bar[1] - 4), (mx, bar[1] + 13), 2)
         ui.draw_text(surface, ui.font(18), "finish before the line to deflect", GRAY,
-                     midleft=(bar[0], y0 + 107))
+                     midleft=(bar[0], y0 + 104))
 
     def draw_grimoire(self, surface):
         run = self.run
         ui.panel(surface, (0, PANEL_Y, WIDTH, HEIGHT - PANEL_Y), 225)
         tier = sanity_tier(run.sanity)
-        jitter = [0, 0.4, 1.2, 2.2][tier]
+        jitter = [0, 0.5, 1.4, 2.4][tier]
         col_w = WIDTH // 2
-        row_h = 41
+        small = ui.font(20)
         for i, owned in enumerate(run.grimoire):
             spell = owned.defn
             col, row = i // 4, i % 4
             x = 14 + col * col_w
-            y = PANEL_Y + 9 + row * row_h
+            y = PANEL_Y + 6 + row * ROW_H
             key = owned.key
             typed = self.typed_count(key)
-            dim = self.locked is not None and self.locked != key
+            burnt = self.burnt.get(key, 0)
+            dim = burnt > 0 or (self.locked is not None and self.locked != key)
             if self.locked == key:
-                pygame.draw.rect(surface, (60, 50, 30), (x - 6, y - 3, col_w - 16, row_h - 2),
+                pygame.draw.rect(surface, (60, 50, 30), (x - 6, y - 2, col_w - 16, ROW_H - 2),
                                  border_radius=4)
+            # first line: name, heat, what it does, what it costs
             name_col = GRAY if dim else ELEMENT_COLORS[spell.element]
             label = f"{spell.name}  Lv{owned.level}"
             if key in self.hexed:
-                label += "  HEXED"
-            ui.draw_text(surface, ui.font(20), label, name_col, topleft=(x, y - 3))
-            info = f"{KIND_LABEL[spell.kind]} {owned.strength():.0f}"
-            cost_col = MISS_COL if self.cost(spell) >= run.sanity else SANITY_COL
-            ui.draw_text(surface, ui.font(18), info, GRAY, topright=(x + col_w - 104, y - 3))
-            ui.draw_text(surface, ui.font(18), f"-{self.cost(spell):.0f} san",
-                         cost_col, topright=(x + col_w - 26, y - 3))
-            ui.draw_incantation(surface, self.texts[key], typed, (x, y + 14), 18,
-                                jitter=0 if dim else jitter,
-                                color=(90, 88, 96) if dim else WHITE,
-                                rng=self.jitter_rng)
+                label += "  (hexed)"
+            name_rect = ui.draw_text(surface, small, label, name_col, topleft=(x, y))
+            heat = self.heat.get(key, 0.0)
+            for k in range(BURNOUT_CASTS):             # heat pips: full = burnout
+                pip = (name_rect.right + 10 + k * 9, y + 5, 6, 6)
+                if burnt > 0 or heat > k + 0.01:
+                    pygame.draw.rect(surface, (255, 120, 40), pip)
+                pygame.draw.rect(surface, (120, 100, 90), pip, 1)
+            info = effect_text(spell.kind, owned.strength())
+            ui.draw_text(surface, small, info, GRAY, topright=(x + col_w - 96, y))
+            cant_pay = self.cost(spell) > run.sanity - 1     # red: it will come out weak
+            ui.draw_text(surface, small, cost_text(self.cost(spell)),
+                         MISS_COL if cant_pay else SANITY_COL,
+                         topright=(x + col_w - 22, y))
+            # second line: the incantation to type, drawn large
+            if burnt > 0:
+                ui.draw_text(surface, ui.font(30), f"Burnt out  {burnt:.0f}s", (255, 120, 40),
+                             topleft=(x, y + 13))
+                bar = (x + 200, y + 26, 200, 6)
+                ui.draw_bar(surface, bar, burnt / BURNOUT_TIME, (255, 120, 40))
+            else:
+                ui.draw_incantation(surface, self.texts[key], typed, (x, y + 13), 30,
+                                    jitter=0 if dim else jitter,
+                                    color=(104, 100, 112) if dim else WHITE,
+                                    rng=self.jitter_rng, max_width=col_w - 30)
         # footer: hints and live typing stats
-        foot_y = HEIGHT - 13
+        foot_y = HEIGHT - 12
         if self.session:
             acc = self.session.accuracy()
             cps = self.session.cps(self.t)
@@ -705,7 +808,5 @@ class CombatScene:
             ui.draw_text(surface, ui.font(18),
                          "Type a spell to cast    Tab: target    Backspace: cancel    Esc: pause",
                          GRAY, center=(WIDTH // 2, foot_y))
-        ui.draw_text(surface, ui.font(18), f"Mind: {TIER_NAMES[tier]}",
-                     SANITY_COL, topright=(WIDTH - 10, PANEL_Y - 20))
         if self.miss_flash > 0:
             pygame.draw.rect(surface, MISS_COL, (0, PANEL_Y, WIDTH, HEIGHT - PANEL_Y), 3)

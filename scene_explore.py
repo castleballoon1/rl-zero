@@ -9,12 +9,13 @@ import ui
 from bestiary import ACTS, scaled_enemy, boss_for
 from entities import Layer, Player, MapEnemy, burst
 from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE,
-                      BRAMBLE_DAMAGE, MOTE_SANITY, MISS_COL, SANITY_COL)
+                      BRAMBLE_DAMAGE, MOTE_SANITY, SHRINE_SANITY, MISS_COL, SANITY_COL)
 from words import sanity_tier
 from worldgen import generate_act
 
 
 class ExploreScene:
+    music = "woods"
     pausable = True
     show_sanity_fx = True
 
@@ -62,6 +63,7 @@ class ExploreScene:
         self.camera_x = 0.0
         self.banner = 3.0
         self.grace = 0.8
+        self.step_timer = 0.0
         self.reading = None
         self.prompt = ""
         self.time = 0.0
@@ -74,6 +76,8 @@ class ExploreScene:
             self.reading = None
             return
         if event.key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w):
+            if self.player.on_ground:
+                self.game.sound.play("jump")
             self.player.jump()
         elif event.key in (pygame.K_DOWN, pygame.K_s):
             self.player.drop()
@@ -88,11 +92,10 @@ class ExploreScene:
         for i, rect in self.shrines:
             if self.player.hitbox.colliderect(rect.inflate(30, 10)) and i not in run.shrines_used:
                 run.shrines_used.add(i)
-                run.heal(25)
-                run.change_sanity(25)
-                self.game.sound.play("heal")
+                run.change_sanity(SHRINE_SANITY)
+                self.game.sound.play("shrine")
                 burst(self.particles, rect.center, (130, 180, 255), 30)
-                self.game.float_text("+25 HP  +25 Sanity", (WIDTH // 2, 200), (150, 200, 255))
+                self.game.float_text(f"+{SHRINE_SANITY} sanity", (WIDTH // 2, 200), (150, 200, 255))
                 return
         for rect, text in self.lore:
             if self.player.hitbox.colliderect(rect.inflate(30, 10)):
@@ -107,8 +110,18 @@ class ExploreScene:
         if self.reading:
             return
         keys = pygame.key.get_pressed()
+        was_in_air = not self.player.on_ground
         self.player.update(dt, keys, self.platform_rects, self.level["length"],
-                           sanity_tier(self.game.run.sanity))
+                           self.game.run.sanity, self.game.run.max_sanity)
+        # footsteps while he walks, a thud when he lands
+        if self.player.on_ground:
+            if was_in_air:
+                self.game.sound.play("land")
+            if abs(self.player.vel.x) > 10:
+                self.step_timer -= dt
+                if self.step_timer <= 0:
+                    self.step_timer = 0.3
+                    self.game.sound.play("step")
         target = self.player.pos.x - WIDTH * 0.4
         self.camera_x = max(0.0, min(self.level["length"] - WIDTH, target))
         self.enemies.update(dt)
@@ -137,8 +150,8 @@ class ExploreScene:
                 self.prompt = "E: read the stone"
         if self.player.hitbox.colliderect(self.gate_rect.inflate(60, 0)):
             left = len(self.enemies)
-            extra = f"  ({left} shadows still roam these woods)" if left else ""
-            self.prompt = "ENTER: step through into the boss arena" + extra
+            extra = f"   ({left} creatures still roam)" if left else ""
+            self.prompt = "Enter: face the boss" + extra
 
     def check_hazards(self):
         """Thorns hurt, motes soothe. Returns True if the run just ended."""
@@ -147,22 +160,22 @@ class ExploreScene:
         if p.invulnerable <= 0:
             for rect, _ in self.brambles:
                 if p.hitbox.colliderect(rect):
-                    run.take_damage(BRAMBLE_DAMAGE)
+                    run.hurt(BRAMBLE_DAMAGE)
                     p.hurt(-1 if p.pos.x < rect.centerx else 1)
                     self.game.sound.play("hurt")
                     self.game.add_shake(0.25, 5)
-                    self.game.float_text(f"Thorns!  -{BRAMBLE_DAMAGE} HP",
+                    self.game.float_text(f"Thorns!  -{BRAMBLE_DAMAGE} sanity",
                                          (WIDTH // 2, 200), MISS_COL)
                     burst(self.particles, p.rect.midbottom, (170, 30, 40), 12)
                     if run.dead:
-                        self.game.game_over("wounds")
+                        self.game.game_over("madness")
                         return True
                     break
         for mote in self.motes:
             if not mote[1] and p.hitbox.colliderect(mote[0]):
                 mote[1] = True
                 run.change_sanity(MOTE_SANITY)
-                self.game.sound.play("lock")
+                self.game.sound.play("mote")
                 burst(self.particles, mote[0].center, (190, 170, 255), 14, speed=(30, 120))
                 self.game.float_text(f"+{MOTE_SANITY} sanity", (WIDTH // 2, 200), SANITY_COL)
         return False
@@ -248,8 +261,8 @@ class ExploreScene:
 
         if self.prompt:
             width = ui.font(28).size(self.prompt)[0] + 30
-            ui.panel(surface, (WIDTH // 2 - width // 2, HEIGHT - 58, width, 34), 230)
-            ui.draw_text(surface, ui.font(28), self.prompt, WHITE, center=(WIDTH // 2, HEIGHT - 41))
+            ui.panel(surface, (WIDTH // 2 - width // 2, HEIGHT - 62, width, 38), 230)
+            ui.draw_text(surface, ui.font(28), self.prompt, WHITE, center=(WIDTH // 2, HEIGHT - 43))
         else:
             ui.draw_text(surface, ui.font(20),
                          "A/D: walk    Space: jump    S: drop down    E: interact    Esc: pause",
@@ -264,5 +277,5 @@ class ExploreScene:
             lines = ui.wrap(self.reading, ui.font(30), 560)
             for i, line in enumerate(lines):
                 ui.draw_text(surface, ui.font(30), line, BONE,
-                             center=(WIDTH // 2, 195 + i * 30))
+                             center=(WIDTH // 2, 195 + i * 32))
             ui.draw_text(surface, ui.font(20), "(any key)", GRAY, center=(WIDTH // 2, 285))

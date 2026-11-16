@@ -14,10 +14,10 @@ import random
 import pygame
 
 from settings import (WIDTH, HEIGHT, FPS, MAX_DT, TITLE, WHITE, GRAY, GOLD,
-                      BONE, HP_COL, SANITY_COL, SHIELD_COL, SANITY_LUCID,
-                      SANITY_FRAYING, SANITY_MAD, MAX_SANITY, MAX_SHIELD)
+                      BONE, SANITY_COL, SHIELD_COL, SANITY_LUCID, BREATH_SANITY, FADE_TIME,
+                      SANITY_FRAYING, SANITY_MAD, MAX_SHIELD)
 
-pygame.mixer.pre_init(22050, -16, 1, 512)
+pygame.mixer.pre_init(44100, -16, 2, 512)    # CD quality stereo, for the recorded music
 pygame.init()
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption(TITLE)
@@ -31,8 +31,8 @@ import ui  # noqa: E402
 def show_loading(text):
     """Cutting the creature sheets takes a moment, so say what is happening."""
     screen.fill((14, 10, 22))
-    ui.draw_text(screen, ui.font(56), TITLE, BONE, center=(WIDTH // 2, HEIGHT // 2 - 40))
-    ui.draw_text(screen, ui.font(28), text, GRAY, center=(WIDTH // 2, HEIGHT // 2 + 20))
+    ui.draw_text(screen, ui.font(96), TITLE, BONE, center=(WIDTH // 2, HEIGHT // 2 - 50))
+    ui.draw_text(screen, ui.font(30), text, GRAY, center=(WIDTH // 2, HEIGHT // 2 + 30))
     pygame.display.flip()
     pygame.event.pump()      # keeps the window responsive while loading
 
@@ -46,7 +46,7 @@ from run_state import RunState, SaveData  # noqa: E402
 from scene_camp import CampScene  # noqa: E402
 from scene_combat import CombatScene  # noqa: E402
 from scene_explore import ExploreScene  # noqa: E402
-from scene_menus import TitleScene, EndScene  # noqa: E402
+from scene_menus import TitleScene, EndScene, DeathScene  # noqa: E402
 from scene_page import PageScene  # noqa: E402
 from sound import Sound  # noqa: E402
 from spells import SPELLS  # noqa: E402
@@ -69,7 +69,6 @@ class Game:
         self.overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.overlay.fill((0, 0, 0, 150))
         self.sound = Sound()
-        self.sound.start_music()
         self.save = SaveData(os.path.join(HERE, "save.json"))
         self.run = None
         self.explore = None
@@ -85,12 +84,27 @@ class Game:
         self.red = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.shade.fill((0, 0, 0, 225))
+        # Scene changes fade through black: `fade` is how dark the screen is
+        # (0 clear, 1 black) and `next_scene` is the scene waiting behind it.
+        self.black = pygame.Surface((WIDTH, HEIGHT))
+        self.fade = 1.0               # the game opens by fading in
+        self.next_scene = None
+        self.transitions = True       # set False to switch scenes at once
+        self.heartbeat = 0.0          # seconds until the next heartbeat at low sanity
         self.scene = TitleScene(self)
+        self.sound.play_music(self.scene.music)
 
     # --- state changes ----------------------------------------------------------
     def change(self, scene):
-        self.scene = scene
+        """Go to another scene: fade to black, swap, fade back in."""
         self.paused = False
+        if self.transitions:
+            self.next_scene = scene       # update() swaps it in once the screen is black
+            self.sound.play("fade")
+        else:
+            self.scene = scene
+        # the music changes over while the picture fades
+        self.sound.play_music(scene.music)
 
     def start_run(self, name, seed):
         self.run = RunState(name, seed)
@@ -112,7 +126,7 @@ class Game:
     def achieve(self, key):
         """Unlock a spell in the middle of play and announce it."""
         if self.unlock(key):
-            self.sound.play("page")
+            self.sound.play("unlock")
             self.ui_floaters.append(FloatingText(
                 f"Spell unlocked forever: {SPELLS[key].name}", (WIDTH // 2, 250), GOLD,
                 34, 3.0, 12))
@@ -136,9 +150,9 @@ class Game:
         unlocked = []
         if run.sanity < SANITY_MAD:
             unlocked += self.unlock(MADNESS_UNLOCK)
-        run.change_sanity(4)   # a breath after the fight
+        run.change_sanity(BREATH_SANITY)   # a breath after the fight
         if run.has("heartwood"):
-            run.heal(8)
+            run.change_sanity(8)
         if combat.boss:
             for key in BOSS_UNLOCKS[run.act]:
                 unlocked += self.unlock(key)
@@ -163,7 +177,10 @@ class Game:
 
     def game_over(self, cause):
         self.finish_run()
-        self.change(EndScene(self, cause))
+        if cause == "madness":
+            self.change(DeathScene(self))      # his eyes go black, then the end screen
+        else:
+            self.change(EndScene(self, cause))
 
     # --- effects -------------------------------------------------------------
     def add_shake(self, seconds, power):
@@ -178,6 +195,8 @@ class Game:
         if event.type == pygame.QUIT:
             self.running = False
             return
+        if self.next_scene:
+            return                    # no input while the screen fades out
         if self.paused:
             self.handle_pause_key(event)
             return
@@ -202,6 +221,7 @@ class Game:
             self.sound.set_volume(self.sound.volume + step)
             self.sound.play("select")
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self.sound.play("confirm")
             if self.pause_selected == 0:
                 self.paused = False
             elif self.pause_selected == 2:
@@ -209,14 +229,34 @@ class Game:
 
     def update(self, dt):
         self.time += dt
+        self.sound.update(dt)         # music fades
         self.shake = max(0.0, self.shake - dt)
         for f in self.ui_floaters:
             f.update(dt)
         self.ui_floaters = [f for f in self.ui_floaters if f.alive]
+        if self.next_scene:
+            # fading out: the old scene is frozen until the screen is black
+            self.fade = min(1.0, self.fade + dt / FADE_TIME)
+            if self.fade >= 1.0:
+                self.scene = self.next_scene
+                self.next_scene = None
+            return
+        self.fade = max(0.0, self.fade - dt / FADE_TIME)     # fading in
         if self.paused:
             return
         self.scene.update(dt)
         self.update_whispers(dt)
+        self.update_heartbeat(dt)
+
+    def update_heartbeat(self, dt):
+        """Below 40 sanity his heart is heard, faster the lower it falls."""
+        if not (self.run and self.scene.show_sanity_fx) or self.run.sanity >= SANITY_FRAYING:
+            self.heartbeat = 0.0
+            return
+        self.heartbeat -= dt
+        if self.heartbeat <= 0:
+            self.sound.play("heartbeat")
+            self.heartbeat = 0.5 + 0.8 * self.run.sanity / SANITY_FRAYING
 
     def update_whispers(self, dt):
         """Below 40 sanity, words drift across the screen."""
@@ -253,6 +293,9 @@ class Game:
             f.draw(self.screen)
         if self.paused:
             self.draw_pause(self.screen)
+        if self.fade > 0:
+            self.black.set_alpha(int(255 * self.fade))
+            self.screen.blit(self.black, (0, 0))
         pygame.display.flip()
 
     def draw_sanity_fx(self, surface):
@@ -264,25 +307,26 @@ class Game:
             self.red.fill((120, 0, 20, int(20 + 40 * pulse)))
             surface.blit(self.red, (0, 0))
         for text, x, y, life, _ in self.whispers:
-            img = ui.font(26).render(text, True, (150, 120, 190))
+            img = ui.font(30).render(text, True, (150, 120, 190))
             img.set_alpha(int(min(1.0, life, 3.0 - life) * 110))
             surface.blit(img, (x, y))
 
     def draw_hud(self, surface):
+        """Name, act and the one bar that matters: sanity, which is also his health."""
         run = self.run
-        ui.panel(surface, (8, 8, 286, 66), 170)
-        ui.draw_text(surface, ui.font(22), f"{run.name}  -  Act {run.act}", BONE, topleft=(16, 11))
-        ui.draw_bar(surface, (16, 32, 160, 12), run.hp / run.max_hp, HP_COL)
+        ui.panel(surface, (8, 8, 330, 52), 170)
+        ui.draw_text(surface, ui.font(22), f"{run.name}  -  Act {run.act}", BONE, topleft=(16, 12))
+        bar = (16, 32, 220, 18)
+        ui.draw_bar(surface, bar, run.sanity / run.max_sanity, SANITY_COL)
         if run.shield > 0:
-            ui.draw_bar(surface, (16, 32, 160, 4), run.shield / MAX_SHIELD, SHIELD_COL,
+            ui.draw_bar(surface, (16, 32, 220, 5), run.shield / MAX_SHIELD, SHIELD_COL,
                         border=SHIELD_COL)
-        ui.draw_text(surface, ui.font(20), f"HP {run.hp:.0f}", WHITE, topleft=(184, 29))
-        ui.draw_bar(surface, (16, 52, 160, 12), run.sanity / MAX_SANITY, SANITY_COL)
-        for mark in (SANITY_LUCID, SANITY_FRAYING, SANITY_MAD):
-            x = 16 + int(160 * mark / MAX_SANITY)
-            pygame.draw.line(surface, GRAY, (x, 50), (x, 66), 1)
+        for mark in (SANITY_LUCID, SANITY_FRAYING, SANITY_MAD):   # where the words change
+            x = 16 + int(220 * mark / run.max_sanity)
+            pygame.draw.line(surface, GRAY, (x, 30), (x, 51), 1)
         tier = TIER_NAMES[sanity_tier(run.sanity)]
-        ui.draw_text(surface, ui.font(20), f"{tier} {run.sanity:.0f}", SANITY_COL, topleft=(184, 49))
+        ui.draw_text(surface, ui.font(20), f"Sanity {run.sanity:.0f}", WHITE, midleft=(22, 41))
+        ui.draw_text(surface, ui.font(20), tier, SANITY_COL, midleft=(246, 41))
 
     def draw_pause(self, surface):
         surface.blit(self.shade, (0, 0))

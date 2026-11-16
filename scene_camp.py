@@ -8,14 +8,13 @@ import art
 import ui
 from relics import RELICS, offer
 from settings import (WIDTH, HEIGHT, WHITE, GRAY, GOLD, BONE, GREEN,
-                      SANITY_COL, ELEMENT_COLORS, REST_HP, REST_SANITY, GROUND_Y)
-from entities import HERO_LOOK
-from words import sanity_tier
+                      SANITY_COL, ELEMENT_COLORS, REST_SANITY, GROUND_Y)
 
 FIRE = (330, GROUND_Y - 4)
 
 
 class CampScene:
+    music = "woods"
     pausable = False
     show_sanity_fx = True
 
@@ -48,12 +47,12 @@ class CampScene:
         rows = []
         for kind, key in self.options:
             if kind == "rest":
-                rows.append(("Rest by the fire", f"+{REST_HP} health, +{REST_SANITY} sanity", GREEN))
+                rows.append(("Rest by the fire", f"Regain {REST_SANITY} sanity", GREEN))
             elif kind == "study":
                 rows.append(("Study the grimoire", "Raise one spell by a level", SANITY_COL))
             else:
                 name, desc = RELICS[key]
-                rows.append((f"Take the {name}", desc, GOLD))
+                rows.append((name, "Relic: " + desc, GOLD))
         return rows
 
     def handle_event(self, event):
@@ -86,7 +85,6 @@ class CampScene:
                 self.game.sound.play("select")
                 return
             if kind == "rest":
-                self.run.heal(REST_HP)
                 self.run.change_sanity(REST_SANITY)
             else:
                 self.run.add_relic(key)
@@ -108,8 +106,7 @@ class CampScene:
         surface.blit(light, light.get_rect(center=FIRE))
         fire = art.campfire_surface(int(self.time * 10))
         surface.blit(fire, fire.get_rect(midbottom=(FIRE[0], FIRE[1] + 12)))
-        look = self.hero["looks"][HERO_LOOK[sanity_tier(self.run.sanity)]]
-        boy = look["right"]["idle"]
+        boy = art.hero_poses(self.hero, self.run.sanity, self.run.max_sanity)["idle"]
         surface.blit(boy, boy.get_rect(midbottom=(FIRE[0] - 120, FIRE[1] + 10)))
         # sparks
         for i in range(12):
@@ -127,7 +124,7 @@ class CampScene:
         ui.draw_text(surface, ui.font(24), head, GRAY, center=(WIDTH // 2, 145))
         rows = self.rows()
         tall = len(rows) <= 5
-        row_h = 52 if tall else 40
+        row_h = 58 if tall else 40
         x, y = 500, 180
         for i, (title, detail, color) in enumerate(rows):
             box = pygame.Rect(x, y + i * row_h, 430, row_h - 6)
@@ -135,10 +132,10 @@ class CampScene:
             ui.panel(surface, box, 230 if sel else 150,
                      border=GOLD if sel else (70, 64, 80))
             ui.draw_text(surface, ui.font(26), f"[{i + 1}] {title}", color if sel else WHITE,
-                         topleft=(box.x + 10, box.y + 4))
+                         topleft=(box.x + 10, box.y + 2))
             if tall:
                 ui.draw_text(surface, ui.font(19), ui.fit(detail, ui.font(19), 410), GRAY,
-                             topleft=(box.x + 10, box.y + row_h - 26))
+                             topleft=(box.x + 10, box.y + 32))
             else:
                 ui.draw_text(surface, ui.font(19), detail, GRAY,
                              midright=(box.right - 10, box.centery))

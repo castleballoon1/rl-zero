@@ -1,103 +1,135 @@
-"""A pixel font drawn in code.
+"""A medieval (blackletter-style) pixel font drawn in code.
 
 The game's art is pixel art, so its text is too. Every letter is a small grid
 of dots, listed below, and is drawn as squares `scale` pixels wide. No font
 file is needed, so the text looks the same on every computer.
+
+The letters follow the look of medieval blackletter: upright stems two dots
+thick, a small flag at the top-left of a stem and a foot at the bottom-right,
+angular bowls, and a thin inner line in round capitals (C, E, G, O, Q).
+They are kept plainer than real blackletter so that single letters are easy
+to tell apart: this is a typing game.
 
 PixelFont has the same two methods the game uses on a pygame Font,
 render() and size(), so it can stand in for one anywhere.
 """
 import pygame
 
-ROWS = 9            # 7 rows for the letter body + 2 below the line (g, j, p, q, y)
-MONO_ADVANCE = 6    # fixed-width cell: 5 columns + 1 gap
-SPACE_WIDTH = 3
+ROWS = 14           # row 0 spare, rows 1-10 capitals/ascenders, 4-10 small letters, 11-13 tails
+SPACE_WIDTH = 4
 
-# Capitals, digits and punctuation: the classic 5 x 7 dot-matrix letters.
-# Each letter is 5 COLUMNS; in a column, bit 0 is the top dot.
-COLUMNS = {
-    "!": (0x00, 0x00, 0x5F, 0x00, 0x00), '"': (0x00, 0x07, 0x00, 0x07, 0x00),
-    "#": (0x14, 0x7F, 0x14, 0x7F, 0x14), "$": (0x24, 0x2A, 0x7F, 0x2A, 0x12),
-    "%": (0x23, 0x13, 0x08, 0x64, 0x62), "&": (0x36, 0x49, 0x55, 0x22, 0x50),
-    "'": (0x00, 0x00, 0x03, 0x00, 0x00), "(": (0x00, 0x1C, 0x22, 0x41, 0x00),
-    ")": (0x00, 0x41, 0x22, 0x1C, 0x00), "*": (0x14, 0x08, 0x3E, 0x08, 0x14),
-    "+": (0x08, 0x08, 0x3E, 0x08, 0x08), ",": (0x00, 0x00, 0xC0, 0x00, 0x00),
-    "-": (0x00, 0x08, 0x08, 0x08, 0x00), ".": (0x00, 0x00, 0x40, 0x00, 0x00),
-    "/": (0x20, 0x10, 0x08, 0x04, 0x02),
-    "0": (0x3E, 0x51, 0x49, 0x45, 0x3E), "1": (0x00, 0x42, 0x7F, 0x40, 0x00),
-    "2": (0x42, 0x61, 0x51, 0x49, 0x46), "3": (0x21, 0x41, 0x45, 0x4B, 0x31),
-    "4": (0x18, 0x14, 0x12, 0x7F, 0x10), "5": (0x27, 0x45, 0x45, 0x45, 0x39),
-    "6": (0x3C, 0x4A, 0x49, 0x49, 0x30), "7": (0x01, 0x71, 0x09, 0x05, 0x03),
-    "8": (0x36, 0x49, 0x49, 0x49, 0x36), "9": (0x06, 0x49, 0x49, 0x29, 0x1E),
-    ":": (0x00, 0x00, 0x24, 0x00, 0x00), ";": (0x00, 0x00, 0xA4, 0x00, 0x00),
-    "<": (0x08, 0x14, 0x22, 0x41, 0x00), "=": (0x14, 0x14, 0x14, 0x14, 0x00),
-    ">": (0x00, 0x41, 0x22, 0x14, 0x08), "?": (0x02, 0x01, 0x51, 0x09, 0x06),
-    "@": (0x32, 0x49, 0x79, 0x41, 0x3E),
-    "A": (0x7E, 0x11, 0x11, 0x11, 0x7E), "B": (0x7F, 0x49, 0x49, 0x49, 0x36),
-    "C": (0x3E, 0x41, 0x41, 0x41, 0x22), "D": (0x7F, 0x41, 0x41, 0x22, 0x1C),
-    "E": (0x7F, 0x49, 0x49, 0x49, 0x41), "F": (0x7F, 0x09, 0x09, 0x09, 0x01),
-    "G": (0x3E, 0x41, 0x49, 0x49, 0x7A), "H": (0x7F, 0x08, 0x08, 0x08, 0x7F),
-    "I": (0x00, 0x41, 0x7F, 0x41, 0x00), "J": (0x20, 0x40, 0x41, 0x3F, 0x01),
-    "K": (0x7F, 0x08, 0x14, 0x22, 0x41), "L": (0x7F, 0x40, 0x40, 0x40, 0x40),
-    "M": (0x7F, 0x02, 0x0C, 0x02, 0x7F), "N": (0x7F, 0x04, 0x08, 0x10, 0x7F),
-    "O": (0x3E, 0x41, 0x41, 0x41, 0x3E), "P": (0x7F, 0x09, 0x09, 0x09, 0x06),
-    "Q": (0x3E, 0x41, 0x51, 0x21, 0x5E), "R": (0x7F, 0x09, 0x19, 0x29, 0x46),
-    "S": (0x46, 0x49, 0x49, 0x49, 0x31), "T": (0x01, 0x01, 0x7F, 0x01, 0x01),
-    "U": (0x3F, 0x40, 0x40, 0x40, 0x3F), "V": (0x1F, 0x20, 0x40, 0x20, 0x1F),
-    "W": (0x3F, 0x40, 0x38, 0x40, 0x3F), "X": (0x63, 0x14, 0x08, 0x14, 0x63),
-    "Y": (0x07, 0x08, 0x70, 0x08, 0x07), "Z": (0x61, 0x51, 0x49, 0x45, 0x43),
-    "[": (0x00, 0x7F, 0x41, 0x41, 0x00), "\\": (0x02, 0x04, 0x08, 0x10, 0x20),
-    "]": (0x00, 0x41, 0x41, 0x7F, 0x00), "^": (0x04, 0x02, 0x01, 0x02, 0x04),
-    "_": (0x40, 0x40, 0x40, 0x40, 0x40), "`": (0x00, 0x01, 0x02, 0x00, 0x00),
-    "{": (0x00, 0x08, 0x36, 0x41, 0x00), "|": (0x00, 0x00, 0x7F, 0x00, 0x00),
-    "}": (0x00, 0x41, 0x36, 0x08, 0x00), "~": (0x08, 0x04, 0x08, 0x10, 0x08),
-    "·": (0x00, 0x00, 0x08, 0x00, 0x00),    # middle dot: shows a space to type
-}
-
-# Lower-case letters, drawn narrower so long lines of text still fit.
-# X is a dot. The rows run top to bottom; a letter may hang 2 rows below.
-LOWER = {
-    "a": ["....", "....", ".XX.", "...X", ".XXX", "X..X", ".XXX"],
-    "b": ["X...", "X...", "XXX.", "X..X", "X..X", "X..X", "XXX."],
-    "c": ["....", "....", ".XXX", "X...", "X...", "X...", ".XXX"],
-    "d": ["...X", "...X", ".XXX", "X..X", "X..X", "X..X", ".XXX"],
-    "e": ["....", "....", ".XX.", "X..X", "XXXX", "X...", ".XXX"],
-    "f": [".XX", "X..", "XXX", "X..", "X..", "X..", "X.."],
-    "g": ["....", "....", ".XXX", "X..X", "X..X", "X..X", ".XXX", "...X", ".XX."],
-    "h": ["X...", "X...", "XXX.", "X..X", "X..X", "X..X", "X..X"],
-    "i": ["X", ".", "X", "X", "X", "X", "X"],
-    "j": [".X", "..", ".X", ".X", ".X", ".X", ".X", ".X", "X."],
-    "k": ["X...", "X...", "X..X", "X.X.", "XX..", "X.X.", "X..X"],
-    "l": ["X.", "X.", "X.", "X.", "X.", "X.", ".X"],
-    "m": [".....", ".....", "XX.X.", "X.X.X", "X.X.X", "X.X.X", "X.X.X"],
-    "n": ["....", "....", "XXX.", "X..X", "X..X", "X..X", "X..X"],
-    "o": ["....", "....", ".XX.", "X..X", "X..X", "X..X", ".XX."],
-    "p": ["....", "....", "XXX.", "X..X", "X..X", "X..X", "XXX.", "X...", "X..."],
-    "q": ["....", "....", ".XXX", "X..X", "X..X", "X..X", ".XXX", "...X", "...X"],
-    "r": ["....", "....", "X.XX", "XX..", "X...", "X...", "X..."],
-    "s": ["....", "....", ".XXX", "X...", ".XX.", "...X", "XXX."],
-    "t": [".X.", ".X.", "XXX", ".X.", ".X.", ".X.", "..X"],
-    "u": ["....", "....", "X..X", "X..X", "X..X", "X..X", ".XXX"],
-    "v": [".....", ".....", "X...X", "X...X", ".X.X.", ".X.X.", "..X.."],
-    "w": [".....", ".....", "X...X", "X.X.X", "X.X.X", "X.X.X", ".X.X."],
-    "x": [".....", ".....", "X...X", ".X.X.", "..X..", ".X.X.", "X...X"],
-    "y": ["....", "....", "X..X", "X..X", "X..X", "X..X", ".XXX", "...X", ".XX."],
-    "z": ["....", "....", "XXXX", "...X", ".XX.", "X...", "XXXX"],
+# letter -> (first row, rows separated by "|").  X is a dot.
+SHAPES = {
+    # ---- small letters ---------------------------------------------------
+    "a": (4, ".XXXX.|X...XX|....XX|.XXXXX|XX..XX|XX..XX|.XXXXXX"),
+    "b": (1, "XXX|.XX|.XX|.XX.XX.|.XXXXXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.XXXXX."),
+    "c": (4, "..XXXX|.XX..X|XX....|XX....|XX....|XX...X|.XXXX."),
+    "d": (1, "...XXX|....XX|....XX|.XXXXX|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|.XXXXXX"),
+    "e": (4, "..XXXX.|.XX..XX|XX...XX|XXXXXX.|XX.....|XX....X|.XXXXX."),
+    "f": (1, "..XXX|.XX..|.XX..|XXXXX|.XX..|.XX..|.XX..|.XX..|.XX..|XXXX."),
+    "g": (4, ".XXXXX|XX..XX|XX..XX|XX..XX|XX..XX|.XXXXX|....XX|....XX|X...XX|.XXXX."),
+    "h": (1, "XXX|.XX|.XX|.XX.XX.|.XXXXXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.....XX|....XX."),
+    "i": (2, ".XX|...|XXX|.XX|.XX|.XX|.XX|.XX|.XXX"),
+    "j": (2, ".XX|...|XXX|.XX|.XX|.XX|.XX|.XX|.XX|.XX|.XX|XX."),
+    "k": (1, "XXX|.XX|.XX|.XX..XX|.XX.XX.|.XXXX..|.XXXX..|.XX.XX.|.XX..XX|.XX..XXX"),
+    "l": (1, "XXX|.XX|.XX|.XX|.XX|.XX|.XX|.XX|.XX|.XXX"),
+    "m": (4, "XXX.XX..XX.|.XXXXXXXXXX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XXX"),
+    "n": (4, "XXX.XX.|.XXXXXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.XX..XXX"),
+    "o": (4, "..XXXX.|.XX..XX|XX...XX|XX...XX|XX...XX|XX..XX.|.XXXX.."),
+    "p": (4, "XXX.XX.|.XXXXXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.XXXXX.|.XX|.XX|XXXX"),
+    "q": (4, ".XXXXX|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|.XXXXX|....XX|....XX|...XXXX"),
+    "r": (4, "XXX.XX|.XXXXX|.XX..X|.XX|.XX|.XX|XXXX"),
+    "s": (4, ".XXXXX|XX...X|XX....|.XXXX.|....XX|X...XX|XXXXX."),
+    "t": (2, ".XX|.XX|XXXXX|.XX|.XX|.XX|.XX|.XX..X|..XXX."),
+    "u": (4, "XXX.XXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|..XXXXXX"),
+    "v": (4, "XXX..XX|.XX..XX|.XX..XX|.XX..XX|.XX.XX.|.XXXX..|..XX..."),
+    "w": (4, "XXX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX.XX.|.XXXXXXXX..|..XX..XX..."),
+    "x": (4, "XX...XX|.XX.XX.|..XXX..|..XXX..|..XXX..|.XX.XX.|XX...XX"),
+    "y": (4, "XXX.XXX|.XX..XX|.XX..XX|.XX..XX|.XX..XX|..XXXXX|.....XX|.....XX|X...XX.|.XXXX.."),
+    "z": (4, "XXXXXX|X...XX|...XX.|.XXXX.|.XX...|XX...X|XXXXXX"),
+    # ---- capitals ----------------------------------------------------------
+    "A": (1, "...XXXXX|..XX..XX|.XX...XX|.XX...XX|XX.X..XX|XX.X..XX|XXXXXXXX|XX.X..XX|XX.X..XX|XXX..XXXX"),
+    "B": (1, "XXXXXXXX|X.XX..XXX|X.XX...XX|X.XX..XX|X.XXXXX|X.XX..XX|X.XX...XX|X.XX...XX|X.XX..XXX|XXXXXXXX"),
+    "C": (1, "..XXXXX|.XX...XX|XX.X|XX.X|XX.X|XX.X|XX.X|XX.X...X|.XX...XX|..XXXXX"),
+    "D": (1, "XXXXXXX|X.XX..XX|X.XX...XX|X.XX...XX|X.XX...XX|X.XX...XX|X.XX...XX|X.XX...XX|X.XX..XX|XXXXXXX"),
+    "E": (1, "..XXXXXX|.XX....X|XX.X|XX.X|XX.XXXX|XX.X|XX.X|XX.X...X|.XX...XX|..XXXXX"),
+    "F": (1, "XXXXXXXXX|X.XX....X|X.XX|X.XX|X.XXXXX|X.XX|X.XX|X.XX|X.XX|XXXXX"),
+    "G": (1, "..XXXXX|.XX...XX|XX.X|XX.X|XX.X|XX.X.XXX|XX.X..XX|XX.X..XX|.XX...XX|..XXXXX"),
+    "H": (1, "XXXX..XXX|X.XX..XX|X.XX..XX|X.XX..XX|X.XXXXXX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|XXXX..XXX"),
+    "I": (1, "XXXXXX|..XX|..XX|..XX|..XX|..XX|..XX|..XX|..XX|XXXXXX"),
+    "J": (1, "..XXXXXX|....XX|....XX|....XX|....XX|....XX|....XX|XX..XX|XX..XX|.XXXX"),
+    "K": (1, "XXXX.XXX|X.XX.XX|X.XXXX|X.XXX|X.XXX|X.XXXX|X.XX.XX|X.XX..XX|X.XX..XX|XXXX..XXX"),
+    "L": (1, "XXXX|X.XX|X.XX|X.XX|X.XX|X.XX|X.XX|X.XX|X.XX....X|XXXXXXXXX"),
+    "M": (1, "XXXXX.XXXX|.XX.XXX.XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|.XX..XX..XX|XXX..XX..XXX"),
+    "N": (1, "XXXX..XXX|X.XXX.XX|X.XXXXXX|X.XX.XXX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|XXXX..XXX"),
+    "O": (1, "..XXXX|.XX..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X..XX|.XX..XX|..XXXX"),
+    "P": (1, "XXXXXXXX|X.XX...XX|X.XX...XX|X.XX...XX|X.XX..XX|X.XXXXX|X.XX|X.XX|X.XX|XXXXX"),
+    "Q": (1, "..XXXX|.XX..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X..XX|XX.X.XXX|.XX.XXX|..XXX.XX"),
+    "R": (1, "XXXXXXXX|X.XX...XX|X.XX...XX|X.XX..XX|X.XXXXX|X.XX.XX|X.XX..XX|X.XX..XX|X.XX...XX|XXXXX..XXX"),
+    "S": (1, ".XXXXXX|XX....XX|XX|XXX|.XXXXX|...XXXX|......XX|......XX|XX....XX|.XXXXXX"),
+    "T": (1, "XXXXXXXXX|X...XX..X|...XX|..XX.X|..XX.X|..XX.X|..XX.X|..XX.X..X|...XX..XX|....XXXX"),
+    "U": (1, "XXXX..XXX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|.XXXXXXXX"),
+    "V": (1, "XXXX..XXX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX..XX|X.XX.XX|X.XXXX|.XXXX|..XX"),
+    "W": (1, "XXX.....XXX|.XX.....XX|.XX.....XX|.XX..X..XX|.XX..X..XX|.XX.XXX.XX|.XX.XXX.XX|.XXXX.XXXX|..XX...XX|..XX...XX"),
+    "X": (1, "XXX..XXX|.XX..XX|..XXXX|..XXXX|...XX|...XX|..XXXX|..XXXX|.XX..XX|XXX..XXX"),
+    "Y": (1, "XXX..XXX|.XX..XX|.XX..XX|..XXXX|..XXXX|...XX|...XX|...XX|...XX|..XXXX"),
+    "Z": (1, "XXXXXXXX|X....XXX|....XXX|...XXX|.XXXXXX|..XXX|.XXX|XXX....X|XXX...XX|XXXXXXXX"),
+    # ---- digits ---------------------------------------------------------------
+    "0": (1, ".XXXX.|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|.XXXX."),
+    "1": (1, "..XX|.XXX|XXXX|..XX|..XX|..XX|..XX|..XX|..XX|XXXXXX"),
+    "2": (1, ".XXXX.|XX..XX|....XX|....XX|...XX.|..XX..|.XX...|XX....|XX...X|XXXXXX"),
+    "3": (1, ".XXXX.|XX..XX|....XX|....XX|..XXX.|....XX|....XX|....XX|XX..XX|.XXXX."),
+    "4": (1, "...XXX|..XXXX|.XX.XX|XX..XX|XX..XX|XXXXXX|....XX|....XX|....XX|...XXXX"),
+    "5": (1, "XXXXXX|XX....|XX....|XXXXX.|....XX|....XX|....XX|....XX|XX..XX|.XXXX."),
+    "6": (1, "..XXX.|.XX...|XX....|XXXXX.|XX..XX|XX..XX|XX..XX|XX..XX|XX..XX|.XXXX."),
+    "7": (1, "XXXXXX|X...XX|....XX|...XX.|...XX.|..XX..|..XX..|.XX...|.XX...|.XX..."),
+    "8": (1, ".XXXX.|XX..XX|XX..XX|XX..XX|.XXXX.|XX..XX|XX..XX|XX..XX|XX..XX|.XXXX."),
+    "9": (1, ".XXXX.|XX..XX|XX..XX|XX..XX|XX..XX|.XXXXX|....XX|....XX|...XX.|.XXX.."),
+    # ---- punctuation -------------------------------------------------------------
+    ".": (9, "XX|XX"),
+    ",": (9, "XX|XX|.X|X."),
+    ":": (5, "XX|XX|..|..|XX|XX"),
+    ";": (5, "XX|XX|..|..|XX|XX|.X|X."),
+    "!": (1, "XX|XX|XX|XX|XX|XX|XX|..|XX|XX"),
+    "?": (1, ".XXXX.|XX..XX|....XX|...XX.|..XX..|..XX..|..XX..|......|..XX..|..XX.."),
+    "'": (1, "XX|XX|X."),
+    '"': (1, "XX.XX|XX.XX|X..X."),
+    "-": (6, "XXXXX|XXXXX"),
+    "+": (4, "..XX..|..XX..|XXXXXX|XXXXXX|..XX..|..XX.."),
+    "=": (5, "XXXXXX|......|......|XXXXXX"),
+    "/": (1, "....XX|....XX|...XX.|...XX.|..XX..|..XX..|.XX...|.XX...|XX....|XX...."),
+    "\\": (1, "XX....|XX....|.XX...|.XX...|..XX..|..XX..|...XX.|...XX.|....XX|....XX"),
+    "(": (1, "..XX|.XX.|XX..|XX..|XX..|XX..|XX..|XX..|.XX.|..XX"),
+    ")": (1, "XX..|.XX.|..XX|..XX|..XX|..XX|..XX|..XX|.XX.|XX.."),
+    "[": (1, "XXXX|XX..|XX..|XX..|XX..|XX..|XX..|XX..|XX..|XXXX"),
+    "]": (1, "XXXX|..XX|..XX|..XX|..XX|..XX|..XX|..XX|..XX|XXXX"),
+    "<": (3, "...XX|..XX.|.XX..|XX...|.XX..|..XX.|...XX"),
+    ">": (3, "XX...|.XX..|..XX.|...XX|..XX.|.XX..|XX..."),
+    "%": (1, "XX...XX|XX...XX|....XX.|....XX.|...XX..|..XX...|.XX....|.XX....|XX...XX|XX...XX"),
+    "*": (3, "X.XX.X|.XXXX.|XXXXXX|.XXXX.|X.XX.X"),
+    "#": (3, ".XX.XX.|XXXXXXX|.XX.XX.|.XX.XX.|.XX.XX.|XXXXXXX|.XX.XX."),
+    "&": (1, "..XXX|.XX.XX|.XX.XX|..XXX|.XXX...X|XX.XX.XX|XX..XXX|XX...XX|XX..XXXX|.XXXX.XX"),
+    "@": (3, ".XXXXX.|XX...XX|XX.XXXX|XX.X.XX|XX.XXXX|XX.....|.XXXXX."),
+    "_": (11, "XXXXXX|XXXXXX"),
+    "~": (6, ".XX..X|X..XX."),
+    "|": (1, "XX|XX|XX|XX|XX|XX|XX|XX|XX|XX|XX"),
+    "^": (1, "..XX..|.XXXX.|XX..XX"),
+    "`": (1, "XX.|.XX"),
+    "{": (1, "..XX|.XX.|.XX.|.XX.|XX..|XX..|.XX.|.XX.|.XX.|..XX"),
+    "}": (1, "XX..|.XX.|.XX.|.XX.|..XX|..XX|.XX.|.XX.|.XX.|XX.."),
+    "·": (7, "XX|XX"),          # middle dot: shows a space you have to type
 }
 
 
 def _build_glyphs():
-    """Turn both tables into one: letter -> list of ROWS strings, trimmed to its width."""
+    """letter -> list of ROWS strings, all the same width."""
     glyphs = {}
-    for ch, columns in COLUMNS.items():
-        rows = ["".join("X" if (col >> y) & 1 else "." for col in columns)
-                for y in range(ROWS)]
-        # trim the empty columns on both sides
-        used = [x for x in range(5) if any(row[x] == "X" for row in rows)]
-        glyphs[ch] = [row[used[0]:used[-1] + 1] for row in rows]
-    for ch, rows in LOWER.items():
-        width = len(rows[0])
-        glyphs[ch] = rows + ["." * width] * (ROWS - len(rows))
+    for ch, (top, shape) in SHAPES.items():
+        rows = shape.split("|")
+        width = max(len(row) for row in rows)
+        grid = ["." * width] * top + [row.ljust(width, ".") for row in rows]
+        grid += ["." * width] * (ROWS - len(grid))
+        glyphs[ch] = grid[:ROWS]
     glyphs[" "] = ["." * SPACE_WIDTH] * ROWS
     return glyphs
 
@@ -106,45 +138,34 @@ GLYPHS = _build_glyphs()
 
 
 class PixelFont:
-    """Draws text with the dot letters above, each dot `scale` pixels wide.
+    """Draws text with the dot letters above, each dot `scale` pixels wide."""
 
-    mono=True gives every letter the same width, used for incantations so a
-    word keeps its length while you type it.
-    bold=True makes every dot half as wide again, for headings.
-    """
-
-    def __init__(self, scale, mono=False, bold=False):
+    def __init__(self, scale):
         self.scale = scale
-        self.mono = mono
-        self.bold = bold
         self.height = ROWS * scale
-        self.extra = scale // 2 if bold else 0    # extra pixels of width per dot
+        # the outline is about half a dot thick, so it frames the letters without drowning them
+        self.edge = max(1, round(scale / 2))
         self._letters = {}     # (letter, colour) -> Surface
         self._texts = {}       # (text, colour) -> Surface
         self._outlined = {}    # (text, colour) -> Surface with a black edge
-        # the outline is about half a dot thick, so it frames the letters without drowning them
-        self.edge = max(1, round(scale / 2))
 
-    def advance(self, ch):
-        """How far the next letter starts after this one, in dots."""
-        if self.mono:
-            return MONO_ADVANCE
-        return len(GLYPHS.get(ch, GLYPHS["?"])[0]) + 1
+    def advance(self, ch, gap=1):
+        """How far the next letter starts after this one, in pixels."""
+        return (len(GLYPHS.get(ch, GLYPHS["?"])[0]) + gap) * self.scale
 
     def size(self, text):
-        return (max(1, sum(self.advance(ch) for ch in text) * self.scale + self.extra),
-                self.height)
+        return (max(1, sum(self.advance(ch) for ch in text)), self.height)
 
     def letter(self, ch, color):
         key = (ch, color)
         if key not in self._letters:
             rows = GLYPHS.get(ch, GLYPHS["?"])
             s = self.scale
-            surf = pygame.Surface((len(rows[0]) * s + self.extra, self.height), pygame.SRCALPHA)
+            surf = pygame.Surface((len(rows[0]) * s, self.height), pygame.SRCALPHA)
             for y, row in enumerate(rows):
                 for x, dot in enumerate(row):
                     if dot == "X":
-                        surf.fill(color, (x * s, y * s, s + self.extra, s))
+                        surf.fill(color, (x * s, y * s, s, s))
             self._letters[key] = surf
         return self._letters[key]
 
@@ -158,11 +179,7 @@ class PixelFont:
             surf = pygame.Surface(self.size(text), pygame.SRCALPHA)
             x = 0
             for ch in text:
-                image = self.letter(ch, color)
-                pad = 0
-                if self.mono:                # centre the letter in its cell
-                    pad = (MONO_ADVANCE - 1 - image.get_width() // self.scale) // 2
-                surf.blit(image, ((x + pad) * self.scale, 0))
+                surf.blit(self.letter(ch, color), (x, 0))
                 x += self.advance(ch)
             self._texts[key] = surf
         # a copy, because callers fade their text with set_alpha

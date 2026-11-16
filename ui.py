@@ -10,26 +10,23 @@ _fonts = {}
 _glyphs = {}
 
 
-def font(size, mono=False):
-    """The game's pixel font, at about `size` pixels.
+def font(size):
+    """The game's medieval pixel font, at about `size` pixels.
 
     Pixel letters only look right at whole-number scales, so a requested size
-    picks the nearest step: small text, headings, titles. Headings are bold.
+    picks the nearest step: small text, headings, titles, the game's name.
     """
-    key = (size, mono)
-    if key not in _fonts:
-        if size <= 30:
-            scale = 2
+    if size not in _fonts:
+        if size <= 24:
+            scale = 1
         elif size <= 46:
-            scale = 3
-        elif size <= 66:
-            scale = 4
+            scale = 2
         elif size <= 80:
-            scale = 5
+            scale = 3
         else:
-            scale = 7
-        _fonts[key] = PixelFont(scale, mono, bold=scale >= 3 and not mono)
-    return _fonts[key]
+            scale = 5
+        _fonts[size] = PixelFont(scale)
+    return _fonts[size]
 
 
 def draw_text(surface, fnt, text, color, outline=True, **position):
@@ -66,38 +63,51 @@ def panel(surface, rect, alpha=200, color=DARK, border=(80, 70, 100)):
 def glyph(ch, color, size):
     key = (ch, color, size)
     if key not in _glyphs:
-        _glyphs[key] = font(size, mono=True).outlined(ch, color)
+        _glyphs[key] = font(size).outlined(ch, color)
     return _glyphs[key]
 
 
 def draw_incantation(surface, text, typed, pos, size=20, jitter=0.0,
-                     color=WHITE, typed_color=TYPED_COL, rng=random):
-    """Draw a word one letter at a time.
+                     color=WHITE, typed_color=TYPED_COL, rng=random, max_width=None):
+    """Draw a word one letter at a time. Returns its width.
 
     Letters already typed are highlighted. At low sanity the letters jitter,
     but the letters themselves never change while you type them.
     Spaces are drawn as a small dot so the player can see them.
+    If the word is wider than max_width its letters are set closer together.
     """
     x, y = pos
-    fnt = font(size, mono=True)
-    advance = fnt.size("m")[0]
-    for i, ch in enumerate(text):
+    fnt = font(size)
+    shown = text.replace(" ", "\u00b7")
+    gap = 1
+    if max_width and fnt.size(shown)[0] > max_width:
+        gap = 0
+    for i, ch in enumerate(shown):
         col = typed_color if i < typed else color
-        shown = "·" if ch == " " else ch
-        if ch == " " and i >= typed:
+        if text[i] == " " and i >= typed:
             col = GRAY
         dx = dy = 0
         if jitter > 0 and i >= typed:
             dx = rng.uniform(-jitter, jitter)
             dy = rng.uniform(-jitter, jitter)
+        step = fnt.advance(ch, gap)
+        if text[i] == " ":
+            step += 2 * fnt.scale      # a little air around the dot between words
+            dx += fnt.scale
         # the outlined letter is fnt.edge pixels bigger on every side
-        surface.blit(glyph(shown, col, size),
-                     (x + i * advance + dx - fnt.edge, y + dy - fnt.edge))
+        surface.blit(glyph(ch, col, size), (x + dx - fnt.edge, y + dy - fnt.edge))
         if i == typed:
-            pygame.draw.line(surface, typed_color,
-                             (x + i * advance, y + fnt.height + 1),
-                             (x + (i + 1) * advance - 2, y + fnt.height + 1), 2)
-    return advance * len(text)
+            # a bar under the next letter to type
+            pygame.draw.rect(surface, typed_color,
+                             (x, y + 12 * fnt.scale, max(3, step - fnt.scale), fnt.scale + 1))
+        x += step
+    return x - pos[0]
+
+
+def incantation_width(text, size):
+    fnt = font(size)
+    shown = text.replace(" ", "\u00b7")
+    return fnt.size(shown)[0] + 2 * fnt.scale * text.count(" ")
 
 
 def wrap(text, fnt, width):

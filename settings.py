@@ -18,7 +18,8 @@ MOVE_SPEED = 250         # px / s
 PLAYER_FRAME_TIME = 0.12
 
 # --- Player run stats -------------------------------------------------------
-START_HP = 100
+# Sanity is the boy's ONLY health: spells cost it, blows take it, and at 0 the
+# run ends. There is no separate health bar.
 START_SANITY = 100
 MAX_SANITY = 100
 MAX_SHIELD = 60
@@ -58,7 +59,6 @@ DARK = (14, 12, 20)
 BONE = (222, 210, 180)
 BLOOD = (170, 30, 40)
 SANITY_COL = (120, 90, 220)
-HP_COL = (200, 50, 60)
 SHIELD_COL = (90, 170, 220)
 GOLD = (235, 195, 90)
 GREEN = (110, 210, 130)
@@ -87,17 +87,34 @@ FOCUS_BREAK = 0.80       # a cast sloppier than this loses it all
 
 # --- Woods ------------------------------------------------------------------
 BRAMBLE_DAMAGE = 6
-MOTE_SANITY = 3
-REST_HP = 40
-REST_SANITY = 30
+MOTE_SANITY = 4
+SHRINE_SANITY = 35
+REST_SANITY = 45
+BREATH_SANITY = 6        # regained after every fight
 
 # --- Difficulty ---------------------------------------------------------------
 # Raise these to make every creature tougher; 1.0 is the original strength.
 FOE_HEALTH = 1.15        # multiplies every creature's and boss's health
-FOE_DAMAGE = 1.2         # multiplies the damage of every blow
+FOE_DAMAGE = 1.5         # multiplies the sanity every blow takes
 FOE_SPEED = 1.15         # attacks come this many times as often
 ACT_HEALTH_GROWTH = 0.40  # extra health per act (act 3 = 1 + 2 x this)
 ACT_DAMAGE_GROWTH = 0.30  # extra damage per act
 HEAVY_EVERY = 3          # every 3rd attack of a creature is a HEAVY blow ...
 HEAVY_DAMAGE = 1.5       # ... which hits this much harder and needs a longer word
 RAGE_SPEED = 1.4         # a boss below half health attacks this many times as often
+
+# --- Burnout --------------------------------------------------------------------
+# Lean on one spell too hard and it burns out for a while.
+BURNOUT_CASTS = 3        # this many casts in quick succession burns a spell out
+HEAT_FADE_TIME = 6.0     # seconds for one cast's worth of heat to fade
+BURNOUT_TIME = 8.0       # seconds a burnt-out spell cannot be cast
+SOOTHE_FADE = 0.6        # each healing spell in one fight restores this much of the last
+
+# --- Scene changes ----------------------------------------------------------------
+FADE_TIME = 0.25         # seconds to fade to black, and again to fade back in
+
+# --- Defend words -------------------------------------------------------------------
+# Time allowed = DEFEND_REACTION + letters / typing speed. The speed asked of
+# you (letters per second) rises as sanity falls: [calm, shaken, desperate].
+DEFEND_REACTION = 0.6
+DEFEND_SPEED = [3.0, 3.6, 4.2]

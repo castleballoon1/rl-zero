@@ -11,7 +11,7 @@ from entities import Layer
 from settings import WIDTH, HEIGHT, WHITE, GRAY, GOLD, BONE, SANITY_COL, BLOOD
 from relics import RELICS
 from settings import ELEMENT_COLORS, GREEN
-from spells import SPELLS, SPELL_LIST, KIND_LABEL
+from spells import SPELLS, SPELL_LIST, effect_text, cost_text
 
 
 class MenuBackdrop:
@@ -38,6 +38,7 @@ class MenuBackdrop:
 
 
 class TitleScene:
+    music = "woods"
     pausable = False
     show_sanity_fx = False
 
@@ -67,6 +68,7 @@ class TitleScene:
             self.game.sound.set_volume(self.game.sound.volume + step)
             self.game.sound.play("select")
         elif event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+            self.game.sound.play("confirm")
             if self.selected == 0:
                 self.game.change(NameScene(self.game))
             elif self.selected == 1:
@@ -88,7 +90,7 @@ class TitleScene:
     def draw_ui(self, surface):
         surface.blit(self.game.overlay, (0, 0))
         # the title trembles, one letter at a time
-        title = "SPELL TYPER"
+        title = "Spell Typer"
         big = ui.font(96)
         total = big.size(title)[0]
         x = WIDTH // 2 - total // 2
@@ -113,28 +115,32 @@ class TitleScene:
 HOW_TO = [
     ("Goal", "Lead the lost boy through three cursed acts. Each ends at a gate; step "
              "through when you are ready for its boss. Jump the thorns, gather the lights."),
-    ("Casting", "In battle, TYPE an incantation to cast it. The first letters choose the "
+    ("Sanity", "Sanity is your only health. Spells cost it and every blow that lands takes "
+               "it; at 0 your mind is lost. Below 70 some letters of your spells are "
+               "replaced, below 40 many, below 15 the words are nonsense. Type what you see. "
+               "The boy's eye reddens as it falls."),
+    ("Casting", "In battle, type an incantation to cast it. The first letters choose the "
                 "spell. Wrong keys do not advance; they lower accuracy. Damage x accuracy "
                 "squared. Longer incantations hit harder."),
-    ("Crits", "Crit chance rises the SLOWER you type (1 / letters-per-second), but the "
+    ("Burnout", "Cast the same spell 3 times in quick succession and it burns out for 8 "
+                "seconds. The orange pips by its name show the heat. Vary your spells."),
+    ("Crits", "Crit chance rises the slower you type (1 / letters-per-second), but the "
               "enemies' attack bars keep filling while you take your time."),
     ("Focus", "Each cast at 95%+ accuracy adds a point of Focus (+8% each, up to 5). "
               "A sloppy cast or a blow that lands breaks it."),
-    ("Sanity", "Spells cost sanity and eldritch blows drain it. Below 70 some letters are "
-               "replaced, below 40 many, below 15 the words are nonsense. Type what you "
-               "SEE. At 0 your mind is lost."),
-    ("Defense", "When an attack bar fills, type the DEFEND word in time to dodge; fast and "
-                "clean deflects it back. The lower your health, the harder the words. "
-                "A magenta bar means a HEAVY blow: a longer word, and it hits harder."),
-    ("Pages", "Fights drop scraps, bosses drop pages. The LOWER your sanity when you read "
+    ("Defense", "When an attack bar fills, type the Defend word in time to dodge; fast and "
+                "clean deflects it back. The lower your sanity, the harder the words. "
+                "A magenta bar means a heavy blow: a longer word, and it hits harder."),
+    ("Pages", "Fights drop scraps, bosses drop pages. The lower your sanity when you read "
               "one, the stronger it is and the more choices you get. Or burn it for sanity."),
-    ("Camps", "After a boss you rest at a fire: heal, study a spell, or take a relic."),
+    ("Camps", "After a boss you rest at a fire: regain sanity, study a spell, or take a relic."),
     ("Death", "Death is permanent and the grimoire is lost, but unlocked spells stay "
               "unlocked. See the Codex for how to unlock the rest."),
 ]
 
 
 class HowToScene:
+    music = "woods"
     pausable = False
     show_sanity_fx = False
 
@@ -169,6 +175,7 @@ class HowToScene:
 
 class CodexScene:
     """Everything the player has learned: spells, relics, enemy traits."""
+    music = "woods"
     pausable = False
     show_sanity_fx = False
     PAGES = ["Spells", "Relics & Foes"]
@@ -212,9 +219,9 @@ class CodexScene:
             if spell.key in unlocked:
                 ui.draw_text(surface, small, spell.name, ELEMENT_COLORS[spell.element],
                              topleft=(50, y))
-                ui.draw_text(surface, small, f"{KIND_LABEL[spell.kind]} {spell.base_amount:.0f}",
+                ui.draw_text(surface, small, effect_text(spell.kind, spell.base_amount),
                              WHITE, topleft=(200, y))
-                ui.draw_text(surface, small, f"-{spell.sanity_cost} san", SANITY_COL,
+                ui.draw_text(surface, small, cost_text(spell.sanity_cost), SANITY_COL,
                              topleft=(350, y))
                 tag = "" if spell.tier != "forbidden" else "  (forbidden)"
                 ui.draw_text(surface, small, ui.fit(f"\"{spell.incantation}\"{tag}", small, 480),
@@ -229,7 +236,7 @@ class CodexScene:
         small = ui.font(20)
         y = 70
         ui.draw_text(surface, ui.font(26), "Relics (found at campfires)", GOLD, topleft=(50, y))
-        y += 26
+        y += 36
         for name, desc in RELICS.values():
             ui.draw_text(surface, small, name, WHITE, topleft=(60, y))
             ui.draw_text(surface, small, desc, GRAY, topleft=(260, y))
@@ -237,7 +244,7 @@ class CodexScene:
         y += 12
         ui.draw_text(surface, ui.font(26), "Traits of the things in the woods", GOLD,
                      topleft=(50, y))
-        y += 26
+        y += 36
         for key, (label, desc) in TRAITS.items():
             who = [d["name"] for d in ENEMIES.values() if d.get("trait") == key]
             ui.draw_text(surface, small, label, (190, 150, 230), topleft=(60, y))
@@ -252,6 +259,7 @@ class CodexScene:
 
 class NameScene:
     """Name the boy and optionally type a seed for the woods."""
+    music = "woods"
     pausable = False
     show_sanity_fx = False
 
@@ -306,6 +314,69 @@ class NameScene:
                      GRAY, center=(WIDTH // 2, HEIGHT - 60))
 
 
+class DeathScene:
+    """His mind is gone.
+
+    On a black screen, alone in the middle, the boy's eye burns to full red
+    and then drains to black. Then the end screen follows.
+    """
+    music = "defeat"         # the sombre stinger; it plays on into the end screen
+    pausable = False
+    show_sanity_fx = False
+    REDDEN = (0.5, 1.8)      # between these seconds the eye climbs to full red
+    BLACKEN = (2.3, 3.4)     # ... and between these it goes black
+    LENGTH = 5.6
+
+    def __init__(self, game):
+        self.game = game
+        self.time = 0.0
+        self.leaving = False
+        self.gone_black = False
+        # the mad look, in every eye colour from brown to red to black
+        self.frames = art.hero_frames(art.DEATH_TALL)["looks"][2]
+        game.sound.play("death")
+
+    def eye(self):
+        """Which eye colour to show now."""
+        def along(span):
+            return max(0.0, min(1.0, (self.time - span[0]) / (span[1] - span[0])))
+        if self.time < self.BLACKEN[0]:
+            return 2 + round(along(self.REDDEN) * (art.EYE_RED - 2))
+        if not self.gone_black:
+            self.gone_black = True
+            self.game.sound.play("black")      # a low boom as the light goes out
+        return art.EYE_RED + round(along(self.BLACKEN) * (art.EYE_BLACK - art.EYE_RED))
+
+    def leave(self):
+        if not self.leaving:
+            self.leaving = True
+            self.game.change(EndScene(self.game, "madness"))
+
+    def handle_event(self, event):
+        if event.type == pygame.KEYDOWN and self.time > 1.0:
+            self.leave()             # any key skips ahead
+
+    def update(self, dt):
+        self.time += dt
+        if self.time >= self.LENGTH:
+            self.leave()
+
+    def draw_world(self, surface):
+        surface.fill((0, 0, 0))
+        boy = self.frames[self.eye()]["right"]["idle"]
+        shake = 0
+        if self.REDDEN[0] < self.time < self.BLACKEN[0]:
+            shake = round(math.sin(self.time * 70) * 2)     # he trembles as it takes him
+        surface.blit(boy, boy.get_rect(center=(WIDTH // 2 + shake, HEIGHT // 2 - 10)))
+
+    def draw_ui(self, surface):
+        after = self.time - self.BLACKEN[1] - 0.3
+        if after > 0:
+            line = ui.font(40).outlined("Your mind unravels.", BLOOD)
+            line.set_alpha(int(255 * min(1.0, after / 0.8)))
+            surface.blit(line, line.get_rect(center=(WIDTH // 2, HEIGHT - 60)))
+
+
 class EndScene:
     """Game over or victory. Shows the run's stats."""
     pausable = False
@@ -313,7 +384,6 @@ class EndScene:
 
     CAUSES = {
         "madness": ("Your mind unravels.", "The words were never words at all."),
-        "wounds": ("The woods keep you.", "Your lantern gutters out."),
         "abandon": ("You stop walking.", "The trees close in."),
         "victory": ("Dawn breaks.", "The lost boy walks out of the woods."),
     }
@@ -324,6 +394,8 @@ class EndScene:
         self.run = game.run
         self.time = 0.0
         self.backdrop = MenuBackdrop()
+        # death keeps its stinger, an escape gets its fanfare, giving up is quiet woods
+        self.music = {"madness": "defeat", "victory": "victory"}.get(cause, "woods")
 
     def handle_event(self, event):
         if event.type != pygame.KEYDOWN or self.time < 1.0:

@@ -30,9 +30,6 @@ class Layer:
 
 
 # --- Exploration -------------------------------------------------------------
-HERO_LOOK = [0, 1, 1, 2]     # sanity tier -> which of the boy's three looks to draw
-
-
 class Player(pygame.sprite.Sprite):
     """The lost boy. pos is the middle of his feet."""
     TALL = 84
@@ -42,7 +39,7 @@ class Player(pygame.sprite.Sprite):
         self.hero = art.hero_frames(self.TALL)
         self.walk_index = 0
         self.anim_time = 0.0
-        self.image = self.hero["looks"][0]["right"]["idle"]
+        self.image = art.hero_poses(self.hero, 100)["idle"]
         self.pos = Vector2(x, GROUND_Y)
         self.vel = Vector2(0, 0)
         self.on_ground = True
@@ -78,7 +75,7 @@ class Player(pygame.sprite.Sprite):
             self.drop_timer = 0.25
             self.on_ground = False
 
-    def update(self, dt, keys, platforms, length, tier=0):
+    def update(self, dt, keys, platforms, length, sanity=100, max_sanity=100):
         move = 0
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             move += 1
@@ -111,8 +108,8 @@ class Player(pygame.sprite.Sprite):
                     break
 
         # pick the picture: his look follows his sanity, his pose what he is doing
-        look = self.hero["looks"][HERO_LOOK[tier]]
-        poses = look["right" if self.facing > 0 else "left"]
+        poses = art.hero_poses(self.hero, sanity, max_sanity,
+                               "right" if self.facing > 0 else "left")
         if not self.on_ground:
             self.image = poses["jump"]
         elif move:
@@ -262,6 +259,81 @@ class Projectile:
                            max(2, self.size // 2))
 
 
+class Ring:
+    """An expanding ring of light: the flash where a spell lands."""
+
+    def __init__(self, center, color, radius=60, life=0.35, width=4):
+        self.center = center
+        self.color = color
+        self.radius = radius
+        self.life = life
+        self.width = width
+        self.age = 0.0
+
+    @property
+    def alive(self):
+        return self.age < self.life
+
+    def update(self, dt):
+        self.age += dt
+
+    def draw(self, surface):
+        t = self.age / self.life
+        r = max(2, int(self.radius * (0.2 + 0.8 * t)))
+        surf = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+        pygame.draw.circle(surf, (*self.color, int(255 * (1 - t))), (r + 2, r + 2), r, self.width)
+        surface.blit(surf, surf.get_rect(center=self.center))
+
+
+class RuneCircle:
+    """The casting circle: it snaps open at the boy's feet, its runes turn,
+    a pillar of light rises through him, and it fades as the spell flies."""
+    LIFE = 0.8
+
+    def __init__(self, feet, color, radius=66):
+        self.feet = feet
+        self.color = color
+        self.radius = radius
+        self.age = 0.0
+
+    @property
+    def alive(self):
+        return self.age < self.LIFE
+
+    def update(self, dt):
+        self.age += dt
+
+    def draw(self, surface):
+        t = self.age / self.LIFE
+        grow = min(1.0, t / 0.18)                       # opens fast ...
+        fade = 1 - max(0.0, (t - 0.45) / 0.55)          # ... and fades slowly
+        alpha = int(255 * fade)
+        r = self.radius * grow
+        # the circle lies on the ground, so it is drawn as a flat oval
+        w, h = int(r * 2) + 8, int(r * 0.62) + 8
+        ring = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.ellipse(ring, (*self.color, alpha // 4), (2, 2, w - 4, h - 4))
+        pygame.draw.ellipse(ring, (*self.color, alpha), (2, 2, w - 4, h - 4), 3)
+        inner = (w * 0.18, h * 0.18, w * 0.64, h * 0.64)
+        pygame.draw.ellipse(ring, (255, 255, 255, alpha), inner, 2)
+        for k in range(8):                              # eight runes circling
+            angle = k / 8 * math.tau + self.age * 4
+            x = w / 2 + math.cos(angle) * (w / 2 - 12)
+            y = h / 2 + math.sin(angle) * (h / 2 - 7)
+            pygame.draw.rect(ring, (255, 255, 255, alpha), (x - 2, y - 2, 5, 5))
+        surface.blit(ring, ring.get_rect(center=self.feet))
+        # the pillar of light
+        tall = int(170 * grow)
+        if tall > 4:
+            pillar = pygame.Surface((int(r * 1.2) + 2, tall), pygame.SRCALPHA)
+            pw = pillar.get_width()
+            for k in range(4):
+                inset = k * pw // 9
+                pygame.draw.rect(pillar, (*self.color, int(46 * fade)),
+                                 (inset, 0, pw - 2 * inset, tall))
+            surface.blit(pillar, pillar.get_rect(midbottom=self.feet))
+
+
 # --- Combat ------------------------------------------------------------------
 class CombatEnemy:
     """One creature in a fight. `feet` is where it stands; `tall` its height in pixels."""
@@ -272,7 +344,6 @@ class CombatEnemy:
         self.max_hp = data["hp"]
         self.hp = float(data["hp"])
         self.dmg = data["dmg"]
-        self.dread = data["dread"]
         self.interval = data["interval"]
         self.boss = data["boss"]
         self.rage_text = data.get("rage", "")

@@ -12,15 +12,15 @@ from settings import (FOE_HEALTH, FOE_DAMAGE, FOE_SPEED, ACT_HEALTH_GROWTH,
                       ACT_DAMAGE_GROWTH)
 
 # Real-time combat numbers for an ordinary creature (act 1 strength).
-#   hp, dmg     health and damage per blow
-#   dread       sanity lost when its blow lands
+#   hp          its health
+#   dmg         sanity you lose when its blow lands (sanity is your health)
 #   interval    seconds between attacks (random in this range)
 STATS = {
-    "moth": dict(hp=34, dmg=6, dread=6, interval=(6.0, 7.5), trait="stare"),
-    "maw": dict(hp=56, dmg=10, dread=3, interval=(7.0, 8.5), trait="drink"),
-    "stag": dict(hp=60, dmg=9, dread=6, interval=(7.0, 8.5), trait="hex"),
-    "pilgrim": dict(hp=72, dmg=12, dread=4, interval=(7.5, 9.0), trait="dirge"),
-    "bellwether": dict(hp=64, dmg=9, dread=6, interval=(7.5, 9.0), trait="rally"),
+    "moth": dict(hp=34, dmg=6, interval=(6.0, 7.5), trait="stare"),
+    "maw": dict(hp=56, dmg=10, interval=(7.0, 8.5), trait="drink"),
+    "stag": dict(hp=60, dmg=9, interval=(7.0, 8.5), trait="hex"),
+    "pilgrim": dict(hp=72, dmg=12, interval=(7.5, 9.0), trait="dirge"),
+    "bellwether": dict(hp=64, dmg=9, interval=(7.5, 9.0), trait="rally"),
 }
 
 # name/trait per creature, in the shape the codex expects
@@ -29,24 +29,24 @@ ENEMIES = {key: dict(name=creature_table.ENEMIES[key]["name"], **stats)
 
 # One boss per act: a great old specimen of one of the creatures.
 BOSSES = {
-    1: dict(kind="stag", name="The Lantern Stag", hp=230, dmg=13, dread=6,
+    1: dict(kind="stag", name="The Lantern Stag", hp=230, dmg=13,
             interval=(5.5, 7.0), trait="hex",
             rage="The Stag's lantern burns white!"),
-    2: dict(kind="pilgrim", name="The Rootbound Pilgrim", hp=340, dmg=16, dread=8,
+    2: dict(kind="pilgrim", name="The Rootbound Pilgrim", hp=340, dmg=16,
             interval=(5.5, 6.5), trait="dirge",
             rage="Roots tear up through the path!"),
-    3: dict(kind="bellwether", name="The Starved Bellwether", hp=470, dmg=19, dread=10,
+    3: dict(kind="bellwether", name="The Starved Bellwether", hp=470, dmg=19,
             interval=(5.0, 6.0), trait="rally",
             rage="The bell will not stop ringing!"),
 }
 
 # Short label shown over the enemy, and the full rule for the codex.
 TRAITS = {
-    "stare": ("STARE", "Its eyes drain your sanity for as long as it lives."),
-    "drink": ("DRINK", "Heals itself by the damage it deals to you."),
-    "hex": ("HEX", "A blow that lands scrambles one of your spells until you cast it."),
-    "dirge": ("GRASP", "Its roots drag at you: longer DEFEND words."),
-    "rally": ("TOLL", "Rings its bell: allies hurry. Alone, it costs sanity and a spell."),
+    "stare": ("Stare", "Its eyes drain your sanity for as long as it lives."),
+    "drink": ("Drink", "Heals itself by the sanity it takes from you."),
+    "hex": ("Hex", "A blow that lands scrambles one of your spells until you cast it."),
+    "dirge": ("Grasp", "Its roots drag at you: longer Defend words."),
+    "rally": ("Toll", "Rings its bell: allies hurry. Alone, it costs sanity and a spell."),
 }
 
 # Death sheets: 4 pictures per row. The rows are not all the same height, so

@@ -336,6 +336,7 @@ PAGE_FILES = ["page (high sanity - cyan).png",      # lucid
               "page (low sanity - violet).png",     # uneasy / fraying
               "page (critical sanity - crimson).png"]  # mad
 DEATH_FRAME_TIME = 0.1
+DEATH_TALL = 440             # how tall the boy stands in the death scene
 
 
 # --- The forest ---------------------------------------------------------------
@@ -442,11 +443,75 @@ def creature_frames(kind, height):
 
 
 # --- The child -------------------------------------------------------------------
-def _child_rows(height):
-    """The detailed child: 3 rows (one per sanity look) of [stride, stand, stride]."""
-    sheet = sprites.load_image_safely(CHILD_SHEET)
-    if sheet is None:
-        return None
+# The detailed sheet has 3 rows, one per sanity look (calm, shaken, mad), and
+# in each row 3 right-facing pictures: stride, stand, stride.
+HERO_LOOK = [0, 1, 1, 2]     # sanity tier -> which row of the sheet to draw
+
+# His eye. As sanity falls it is recoloured from brown towards a glowing red
+# (levels 0..EYE_RED); in the death scene it then drains to black
+# (levels EYE_RED+1..EYE_BLACK).
+EYE_RED = 5
+EYE_BLACK = 8
+EYE_CALM = (150, 96, 62)     # eye colour at full sanity
+EYE_MAD = (255, 24, 24)      # eye colour at no sanity
+# Where the eye is in each picture on the sheet: (row, column) -> (x0, y0, x1, y1)
+# measured inside that picture, like the frame rectangles in enemies.py.
+EYE_BOXES = {
+    (0, 0): (160, 86, 180, 104), (0, 1): (133, 84, 154, 104), (0, 2): (141, 85, 161, 104),
+    (1, 0): (160, 86, 180, 102), (1, 1): (134, 85, 154, 102), (1, 2): (142, 85, 161, 102),
+    (2, 0): (160, 78, 181, 96), (2, 1): (131, 78, 154, 95), (2, 2): (141, 79, 161, 96),
+}
+
+
+def eye_level(sanity, max_sanity=100):
+    """0 at full sanity up to EYE_RED at none."""
+    lost = 1 - max(0.0, min(1.0, sanity / max_sanity))
+    return round(lost * EYE_RED)
+
+
+def _is_iris(r, g, b):
+    """Is this pixel part of the coloured eye (red in two rows, violet in one)?"""
+    red = r > 110 and g < 0.4 * r and b < 0.4 * r + 10
+    violet = b > g + 35 and r > g + 30 and g < 110
+    return red or violet
+
+
+def _eye_sheet(sheet, level):
+    """A copy of the child's sheet with every eye recoloured for one eye level."""
+    key = ("eye_sheet", level)
+    if key in _cache:
+        return _cache[key]
+    if level <= EYE_RED:
+        t = level / EYE_RED
+        target = [EYE_CALM[i] + (EYE_MAD[i] - EYE_CALM[i]) * t for i in range(3)]
+        glow = 1 + 0.6 * t          # a mad eye is also brighter
+        shine = 1.0
+    else:
+        k = (level - EYE_RED) / (EYE_BLACK - EYE_RED)   # 0..1 on the way to black
+        target = [EYE_MAD[i] * (1 - k) for i in range(3)]
+        glow = 1.6
+        shine = 1 - k               # the white glint goes out too
+    out = sheet.copy()
+    cw, ch = sheet.get_width() / 6, sheet.get_height() / 3
+    for (row, col), (x0, y0, x1, y1) in EYE_BOXES.items():
+        ox, oy = round(col * cw), round(row * ch)
+        for y in range(oy + y0, oy + y1):
+            for x in range(ox + x0, ox + x1):
+                r, g, b, a = sheet.get_at((x, y))
+                if a < 200:
+                    continue
+                if _is_iris(r, g, b):
+                    v = min(1.0, max(r, g, b) / 255 * glow)     # keep the painted shading
+                    out.set_at((x, y), (int(target[0] * v), int(target[1] * v),
+                                        int(target[2] * v), a))
+                elif shine < 1 and min(r, g, b) > 200:
+                    out.set_at((x, y), (int(r * shine), int(g * shine), int(b * shine), a))
+    _cache[key] = out
+    return out
+
+
+def _child_rows(sheet, height):
+    """Cut one sheet into 3 rows of [stride, stand, stride], `height` px tall."""
     cw, ch = sheet.get_width() / 6, sheet.get_height() / 3
     # columns 0-2 face right; the left-facing ones are made by flipping
     cells = [sheet.subsurface((round(c * cw), round(r * ch), int(cw), int(ch))).copy()
@@ -460,10 +525,10 @@ def _child_rows(height):
 def hero_frames(height):
     """The boy's pictures at one size.
 
-    Returns {'looks': [look, look, look], 'death': frames or None}. A look is
-    {'right': poses, 'left': poses} and poses is
+    Returns {'looks': looks, 'death': frames or None} where
+    looks[row][eye_level] is {'right': poses, 'left': poses} and poses is
     {'idle': Surface, 'walk': [Surfaces], 'jump': Surface, 'cast': Surface}.
-    looks[0] is calm, looks[1] is shaken, looks[2] is mad.
+    row 0 is calm, 1 shaken, 2 mad. Use hero_poses() to pick the right one.
     """
     key = ("hero", height)
     if key in _cache:
@@ -475,19 +540,30 @@ def hero_frames(height):
                 for name, value in poses.items()}
         return dict(right=poses, left=left)
 
-    rows = _child_rows(height)
-    if rows:
-        looks = [both_ways(dict(idle=stand, walk=[a, stand, b, stand], jump=a, cast=b))
-                 for a, stand, b in rows]
-        death = None      # no painted death yet: the fight tips him over and fades him
+    sheet = sprites.load_image_safely(CHILD_SHEET)
+    if sheet:
+        looks = [[], [], []]
+        for level in range(EYE_BLACK + 1):
+            rows = _child_rows(_eye_sheet(sheet, level), height)
+            for row, (a, stand, b) in enumerate(rows):
+                looks[row].append(both_ways(dict(idle=stand, walk=[a, stand, b, stand],
+                                                 jump=a, cast=b)))
+        death = None
     else:
         drawn = [pygame.transform.scale(f, (round(height * 32 / 48), height))
                  for f in player_frames()]
         look = both_ways(dict(idle=drawn[0], walk=drawn[2:6], jump=drawn[6], cast=drawn[7]))
-        looks = [look, look, look]
+        looks = [[look] * (EYE_BLACK + 1)] * 3
         death = drawn[8:12]
     _cache[key] = dict(looks=looks, death=death)
     return _cache[key]
+
+
+def hero_poses(hero, sanity, max_sanity=100, facing="right"):
+    """The boy's poses for his current sanity: the look row and the eye colour."""
+    from words import sanity_tier
+    row = HERO_LOOK[sanity_tier(sanity)]
+    return hero["looks"][row][eye_level(sanity, max_sanity)][facing]
 
 
 # --- Pages -----------------------------------------------------------------------
@@ -515,3 +591,4 @@ def preload(report):
     report("Finding the child...")
     hero_frames(84)
     hero_frames(120)
+    hero_frames(DEATH_TALL)

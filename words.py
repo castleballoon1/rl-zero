@@ -7,7 +7,8 @@ Extremely low sanity -> the incantation becomes garbled nonsense.
 import random
 import string
 
-from settings import SANITY_LUCID, SANITY_FRAYING, SANITY_MAD
+from settings import (SANITY_LUCID, SANITY_FRAYING, SANITY_MAD, DEFEND_REACTION,
+                      DEFEND_SPEED)
 
 LETTERS = string.ascii_lowercase
 
@@ -77,17 +78,18 @@ HARD_WORDS = ["hold fast my soul", "not today", "break the fang",
 
 
 def defense_prompt(hp_fraction, rng=random):
-    """Pick a (word, time_limit) pair. Lower health = harder prompt.
+    """Pick a (word, time_limit) pair. Lower health (sanity) = harder prompt.
 
-    The time limit grows a little for long words but much less than the
-    word length does, so the needed typing speed climbs as health drops.
+    Longer words get more time, but the typing speed asked of you climbs as
+    sanity drops (see DEFEND_SPEED in settings.py).
     """
-    if hp_fraction > 0.66:
-        return rng.choice(EASY_WORDS), 2.4
-    if hp_fraction > 0.33:
-        return rng.choice(MEDIUM_WORDS), 2.6
-    word = rng.choice(HARD_WORDS)
-    if hp_fraction <= 0.15:
-        # near death: the words start to slip
-        word = corrupt(word, 60, rng)
-    return word, 3.4
+    if hp_fraction > 0.75:
+        word, step = rng.choice(EASY_WORDS), 0
+    elif hp_fraction > 0.45:
+        word, step = rng.choice(MEDIUM_WORDS), 1
+    else:
+        word, step = rng.choice(HARD_WORDS), 2
+        if hp_fraction <= 0.2:
+            # near death: the words start to slip
+            word = corrupt(word, 60, rng)
+    return word, DEFEND_REACTION + len(word) / DEFEND_SPEED[step]

@@ -16,7 +16,7 @@ class SpellDef:
     key: str
     name: str
     incantation: str
-    kind: str            # damage, aoe, drain, dot, slow, execute, heal, shield, sanity, pact
+    kind: str            # damage, aoe, drain, dot, slow, execute, shield, sanity, regen, pact
     power: float         # strength per letter
     sanity_cost: int
     element: str
@@ -47,19 +47,19 @@ SPELL_LIST = [
              chill=1.5),
     SpellDef("lash", "Spark Lash", "fulgur verbera", "damage", 2.8, 5, "storm",
              "common", "A whip of crackling storm."),
-    SpellDef("mend", "Mend", "sana vulnus meum", "heal", 1.5, 4, "life",
-             "common", "Knit flesh back together."),
+    SpellDef("mend", "Mend", "sana vulnus meum", "regen", 2.2, 0, "life",
+             "common", "Your mind knits itself back together over 6 seconds."),
     SpellDef("clarity", "Clarity", "mens clara manet", "sanity", 1.2, 0, "mind",
-             "common", "Steady the mind. Restores sanity."),
+             "common", "Steady the mind at once, and lift every hex."),
     # --- rare -------------------------------------------------------------
     SpellDef("rot", "Hex of Rot", "putresce caro mortalis", "dot", 3.2, 6, "rot",
              "rare", "The target rots over six seconds."),
     SpellDef("bone", "Bone Spear", "os hasta perforat", "damage", 3.4, 7, "bone",
              "rare", "A spear of old marrow."),
-    SpellDef("pact", "Whisper Pact", "foedus susurri in tenebris", "pact", 2.0, 14,
-             "void", "rare", "Trade a piece of your mind for your flesh."),
+    SpellDef("pact", "Whisper Pact", "foedus susurri in tenebris", "pact", 4.0, 12,
+             "void", "rare", "Pay sanity now; your next spell strikes that much harder (%)."),
     SpellDef("drain", "Soul Drain", "anima tua mihi exhauritur", "drain", 2.6, 8,
-             "void", "rare", "Tear out their soul; heal for half.",
+             "void", "rare", "Tear out their soul; regain half the damage as sanity.",
              unlock="Defeat The Lantern Stag", lifesteal=0.5),
     SpellDef("chain", "Chain Lightning", "tonitrus catena saltat", "aoe", 2.4, 9,
              "storm", "rare", "Leaps between every foe.",
@@ -88,15 +88,27 @@ SPELL_LIST = [
 ]
 
 SPELLS = {s.key: s for s in SPELL_LIST}
-STARTER_SPELLS = ["ember", "ward"]
+STARTER_SPELLS = ["ember", "frost", "ward"]
 DAMAGE_KINDS = ("damage", "aoe", "drain", "dot", "slow", "execute")
 TIER_WEIGHT = {"common": 3, "rare": 2, "forbidden": 1}
 
 KIND_LABEL = {
     "damage": "Damage", "aoe": "All foes", "drain": "Drain", "dot": "Rot",
-    "slow": "Delay all", "execute": "Execute", "heal": "Heal", "shield": "Shield",
-    "sanity": "Sanity", "pact": "Sanity->HP",
+    "slow": "Delay all", "execute": "Execute", "regen": "Regain", "shield": "Shield",
+    "sanity": "Sanity", "pact": "Empower",
 }
+
+
+def effect_text(kind, amount, before=None):
+    """What a spell does, in a few words: 'Damage 28', 'Next spell +92%' ..."""
+    was = f"{before:.0f} -> " if before is not None else ""
+    if kind == "pact":
+        return f"Next spell +{was}{amount:.0f}%"
+    return f"{KIND_LABEL[kind]} {was}{amount:.0f}"
+
+
+def cost_text(cost):
+    return "free" if cost < 0.5 else f"-{cost:.0f} sanity"
 
 
 def default_unlocked():

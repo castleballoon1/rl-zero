@@ -3,12 +3,12 @@
 RELICS = {
     "lens": ("Cracked Lens", "Crits deal x2.5 instead of x2."),
     "ink": ("Ink of the Deep", "Spells cost 25% less sanity."),
-    "scarf": ("Moth-eaten Scarf", "+0.7 s on every DEFEND word."),
-    "charm": ("Bone Charm", "+25 maximum health."),
+    "scarf": ("Moth-eaten Scarf", "+0.7 s on every Defend word."),
+    "charm": ("Bone Charm", "+20 maximum sanity."),
     "candle": ("Black Candle", "Pages read as if you had 15 less sanity."),
     "bell": ("Quiet Bell", "Foes wait 3 s longer before their first attack."),
     "thimble": ("Thorned Thimble", "Deflects return all the damage, not half."),
-    "heartwood": ("Heartwood Splinter", "Heal 8 health after every fight."),
+    "heartwood": ("Heartwood Splinter", "Regain 8 more sanity after every fight."),
 }
 
 

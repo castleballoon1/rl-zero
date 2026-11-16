@@ -10,10 +10,9 @@ import pygame
 
 import art
 import ui
-from entities import HERO_LOOK
 from settings import (WIDTH, HEIGHT, WHITE, GRAY, GOLD, BONE, SANITY_COL,
                       ELEMENT_COLORS, FORBIDDEN_BELOW, MISS_COL, BLOOD)
-from spells import (SPELLS, TIER_WEIGHT, KIND_LABEL, OwnedSpell, page_potency,
+from spells import (SPELLS, TIER_WEIGHT, effect_text, cost_text, OwnedSpell, page_potency,
                     page_choice_count)
 from words import sanity_tier, TIER_NAMES
 
@@ -61,6 +60,7 @@ def build_choices(run, unlocked, boss, rng):
 
 
 class PageScene:
+    music = "woods"
     pausable = False
     show_sanity_fx = True
 
@@ -76,7 +76,7 @@ class PageScene:
         self.selected = 0
         self.time = 0.0
         # cyan while calm, violet when shaken, crimson when mad
-        self.look = HERO_LOOK[sanity_tier(self.sanity)]
+        self.look = art.HERO_LOOK[sanity_tier(self.sanity)]
         self.art = art.page_image(self.look, 250)
         game.sound.play("page")
 
@@ -170,7 +170,7 @@ class PageScene:
 
         y = rect.top + 72
         space = (rect.bottom - 30 - y) / len(self.options)
-        row_h = min(64, space)
+        row_h = min(66, space)
         for i, (kind, key) in enumerate(self.options):
             sel = i == self.selected
             box = pygame.Rect(rect.left + 24, y, rect.width - 48, row_h - 6)
@@ -179,35 +179,35 @@ class PageScene:
                 pygame.draw.rect(surface, (120, 60, 40), box, 2, border_radius=6)
             if kind == "burn":
                 on_page(surface, ui.font(26), f"[{i + 1}] Burn the page",
-                             ink, topleft=(box.x + 10, box.y + 6))
+                        ink, topleft=(box.x + 10, box.y + 1))
                 on_page(surface, ui.font(20),
-                             f"Watch it curl to ash. +{BURN_SANITY} sanity.",
-                             (60, 50, 50), topleft=(box.x + 10, box.y + 30))
+                        f"Watch it curl to ash. +{BURN_SANITY} sanity.",
+                        (60, 50, 50), topleft=(box.x + 10, box.y + 33))
             else:
                 spell = SPELLS[key]
                 owned = run.get(key)
                 if owned:
                     preview = OwnedSpell(key, owned.level + 1, max(owned.potency, self.potency))
                     tag = f"Lv{owned.level} -> Lv{owned.level + 1}"
-                    before = f"{owned.strength():.0f} -> "
+                    before = owned.strength()
                 else:
                     preview = OwnedSpell(key, 1, self.potency)
-                    tag = "NEW" if spell.tier != "forbidden" else "FORBIDDEN"
-                    before = ""
+                    tag = "New" if spell.tier != "forbidden" else "Forbidden"
+                    before = None
                 col = ELEMENT_COLORS[spell.element]
                 dark = tuple(int(c * 0.55) for c in col)
-                on_page(surface, ui.font(26), f"[{i + 1}] {spell.name}", dark,
-                             topleft=(box.x + 10, box.y + 4))
+                name = on_page(surface, ui.font(26), f"[{i + 1}] {spell.name}", dark,
+                               topleft=(box.x + 10, box.y + 1))
                 on_page(surface, ui.font(20), tag,
-                             MISS_COL if spell.tier == "forbidden" else (120, 80, 30),
-                             topleft=(box.x + 250, box.y + 8))
-                stats = (f"{KIND_LABEL[spell.kind]} {before}{preview.strength():.0f}   "
-                         f"cost {spell.sanity_cost}")
-                on_page(surface, ui.font(20), stats, ink, topright=(box.right - 10, box.y + 8))
+                        MISS_COL if spell.tier == "forbidden" else (120, 80, 30),
+                        topleft=(name.right + 14, box.y + 11))
+                stats = (f"{effect_text(spell.kind, preview.strength(), before)}   "
+                         f"{cost_text(spell.sanity_cost)}")
+                on_page(surface, ui.font(20), stats, ink, topright=(box.right - 10, box.y + 11))
                 line = f"\"{spell.incantation}\"  ({spell.letters} letters) - {spell.desc}"
                 line = ui.fit(line, ui.font(19), box.width - 20)
                 on_page(surface, ui.font(19), line, (70, 60, 55),
-                             topleft=(box.x + 10, box.y + 30))
+                        topleft=(box.x + 10, box.y + 33))
             y += row_h
         hint = "Up/Down + Enter, or press a number"
         if not run.has_room():
