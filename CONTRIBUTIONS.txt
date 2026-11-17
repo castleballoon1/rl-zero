@@ -1,0 +1,49 @@
+Spell Typer - Milestone 3 Contributions (CPSC 4160)
+Based on the commit history of github.com/castleballoon1/rl-zero
+
+
+* Task 1: Player Controller and Combat Prototype
+   * Jonathan Henning (castleballoon1): 100 Pts
+      * Repo setup and README 5 Pts.
+      * Game loop and window 15 Pts.
+      * Player movement 15 Pts.
+      * Walking animation 20 Pts.
+      * Asset path fixes 5 Pts.
+      * Combat prototype: spells, typing, casting 25 Pts.
+      * Combat prototype UI 15 Pts.
+
+
+* Task 2: Main Character and Item Art
+   * Astraeus Newell: 100 Pts
+      * Child walk frames (8 directions) 25 Pts.
+      * Child sprite sheet and GIF 10 Pts.
+      * Sanity-based sprite sheet 20 Pts.
+      * Detailed child sprite sheet (calm/shaken/mad) 25 Pts.
+      * Page sprites (3 sanity colors) 15 Pts.
+      * Sprite folder organization 5 Pts.
+
+
+* Task 3: Environment Art, Enemy Art and Parallax
+   * Max Engelhorn (Forkdispenser): 100 Pts
+      * Forest background layers 20 Pts.
+      * Parallax background (scene.py) 20 Pts.
+      * Five enemy designs 20 Pts.
+      * Enemy animation sprite sheets 20 Pts.
+      * Enemy death animations 15 Pts.
+      * Asset folder organization 5 Pts.
+
+
+* Task 4: Combat System, Integration and Full Game
+   * Hayden Uy (huy1480): 100 Pts
+      * Expanded combat prototype, WPM crits, linked exploration to combat 20 Pts.
+      * Game architecture and scene transitions 8 Pts.
+      * Real-time typing combat 12 Pts.
+      * Sanity system and word scrambling 8 Pts.
+      * Typed defense (dodge/deflect) 7 Pts.
+      * Levels and world generation 10 Pts.
+      * Spells, relics and enemy traits 7 Pts.
+      * Page reward and campfire screens 5 Pts.
+      * Menus, score and saving 7 Pts.
+      * Entities, art loading, pixel font, UI 8 Pts.
+      * Sound and music 5 Pts.
+      * README 3 Pts.
