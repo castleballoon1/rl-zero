@@ -15,7 +15,7 @@ import pygame
 
 from settings import (WIDTH, HEIGHT, FPS, MAX_DT, TITLE, WHITE, GRAY, GOLD,
                       BONE, SANITY_COL, SHIELD_COL, SANITY_LUCID, BREATH_SANITY, FADE_TIME,
-                      SANITY_FRAYING, SANITY_MAD, MAX_SHIELD)
+                      SANITY_FRAYING, GAZE_UNLOCK_BELOW, MAX_SHIELD, DIFFICULTY)
 
 pygame.mixer.pre_init(44100, -16, 2, 512)    # CD quality stereo, for the recorded music
 pygame.init()
@@ -39,27 +39,34 @@ def show_loading(text):
 
 art.preload(show_loading)
 
-from bestiary import ACTS, FINAL_ACT  # noqa: E402
+from bestiary import FINAL_ACT, act_info  # noqa: E402
 from entities import FloatingText  # noqa: E402
 from relics import RELICS  # noqa: E402
 from run_state import RunState, SaveData  # noqa: E402
 from scene_camp import CampScene  # noqa: E402
 from scene_combat import CombatScene  # noqa: E402
 from scene_explore import ExploreScene  # noqa: E402
-from scene_menus import TitleScene, EndScene, DeathScene  # noqa: E402
+from scene_menus import TitleScene, EndScene, DeathScene, DawnScene  # noqa: E402
+from scene_intro import IntroScene  # noqa: E402
 from scene_page import PageScene  # noqa: E402
 from sound import Sound  # noqa: E402
 from spells import SPELLS  # noqa: E402
-from words import sanity_tier, TIER_NAMES  # noqa: E402
+from words import sanity_tier, TIER_NAMES, UNEASY, FRAYING  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-BOSS_UNLOCKS = {1: ["drain"], 2: ["chain", "hourglass"], 3: ["hymn"]}
-MADNESS_UNLOCK = "gaze"
+BOSS_UNLOCKS = {1: ["drain", "echo"], 2: ["chain", "hourglass", "plague"], 3: ["hymn"]}
+MADNESS_UNLOCK = "gaze"          # win a fight below GAZE_UNLOCK_BELOW sanity
+FRAYING_UNLOCK = "bloodprice"    # win a fight while Fraying
 
+# Hallucinated words. A few drift past while Uneasy; while Fraying they
+# crowd the screen.
 WHISPERS = ["turn back", "it sees you", "the words are wrong", "you were never here",
             "read it again", "who wrote this", "they are under the page",
-            "do you remember your name", "keep typing", "it is behind you"]
+            "do you remember your name", "keep typing", "it is behind you",
+            "ignis ignis ignis", "your hands are not yours", "the trees are counting",
+            "wake up", "it was always dark", "spell it wrong", "they want the book",
+            "nobody is coming", "listen", "the page is lying"]
 
 
 class Game:
@@ -81,7 +88,6 @@ class Game:
         self.whispers = []
         self.whisper_timer = 2.0
         self.ui_floaters = []
-        self.red = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.shade.fill((0, 0, 0, 225))
         # Scene changes fade through black: `fade` is how dark the screen is
@@ -91,7 +97,7 @@ class Game:
         self.next_scene = None
         self.transitions = True       # set False to switch scenes at once
         self.heartbeat = 0.0          # seconds until the next heartbeat at low sanity
-        self.scene = TitleScene(self)
+        self.scene = TitleScene(self, intro=True)   # opens with its animation
         self.sound.play_music(self.scene.music)
 
     # --- state changes ----------------------------------------------------------
@@ -106,11 +112,17 @@ class Game:
         # the music changes over while the picture fades
         self.sound.play_music(scene.music)
 
-    def start_run(self, name, seed):
-        self.run = RunState(name, seed)
+    def start_run(self, name, seed, difficulty="normal"):
+        self.run = RunState(name, seed, difficulty)
         self.save.runs += 1
         self.save.best_act = max(self.save.best_act, 1)
+        self.save.difficulty = difficulty
         self.save.save()
+        # the boy wakes in the woods and finds the grimoire (skippable)
+        self.change(IntroScene(self))
+
+    def enter_woods(self):
+        """After the opening: the first act begins."""
         self.explore = ExploreScene(self)
         self.change(self.explore)
 
@@ -148,13 +160,15 @@ class Game:
         run = self.run
         run.shield = 0.0
         unlocked = []
-        if run.sanity < SANITY_MAD:
+        if run.sanity < GAZE_UNLOCK_BELOW:
             unlocked += self.unlock(MADNESS_UNLOCK)
+        if sanity_tier(run.sanity) == FRAYING:
+            unlocked += self.unlock(FRAYING_UNLOCK)
         run.change_sanity(BREATH_SANITY)   # a breath after the fight
         if run.has("heartwood"):
             run.change_sanity(8)
         if combat.boss:
-            for key in BOSS_UNLOCKS[run.act]:
+            for key in BOSS_UNLOCKS.get(act_info(run.act)["look"], []):
                 unlocked += self.unlock(key)
             self.change(PageScene(self, True, combat.enemies[0].name, unlocked))
         else:
@@ -167,12 +181,23 @@ class Game:
         if not boss:
             self.change(self.explore)
             return
-        if run.act >= FINAL_ACT:
+        if run.act == FINAL_ACT and not run.endless:
+            # the story is over: walk out into the dawn, or go deeper
             run.won = True
             self.save.wins += 1
             self.finish_run()
-            self.change(EndScene(self, "victory"))
+            self.change(DawnScene(self))
             return
+        self.change(CampScene(self))
+
+    def leave_woods(self):
+        """At dawn after act 3: he walks out. The run ends in victory."""
+        self.finish_run()
+        self.change(EndScene(self, "victory"))
+
+    def go_deeper(self):
+        """At dawn after act 3: he turns back into the endless woods."""
+        self.run.endless = True
         self.change(CampScene(self))
 
     def game_over(self, cause):
@@ -249,33 +274,46 @@ class Game:
         self.update_heartbeat(dt)
 
     def update_heartbeat(self, dt):
-        """Below 40 sanity his heart is heard, faster the lower it falls."""
-        if not (self.run and self.scene.show_sanity_fx) or self.run.sanity >= SANITY_FRAYING:
+        """While Fraying his heart is heard, faster the lower sanity falls."""
+        if (not (self.run and self.scene.show_sanity_fx)
+                or sanity_tier(self.run.sanity) != FRAYING):
             self.heartbeat = 0.0
             return
         self.heartbeat -= dt
         if self.heartbeat <= 0:
             self.sound.play("heartbeat")
-            self.heartbeat = 0.5 + 0.8 * self.run.sanity / SANITY_FRAYING
+            self.heartbeat = 0.45 + 0.8 * self.run.sanity / SANITY_FRAYING
 
     def update_whispers(self, dt):
-        """Below 40 sanity, words drift across the screen."""
+        """Hallucinated words: a few while Uneasy, a crowd while Fraying."""
         for w in self.whispers:
             w[3] -= dt
             w[1] += w[4] * dt
         self.whispers = [w for w in self.whispers if w[3] > 0]
         if not (self.run and self.scene.show_sanity_fx):
             return
-        if self.run.sanity >= SANITY_FRAYING:
+        tier = sanity_tier(self.run.sanity)
+        if tier < UNEASY:
+            self.whisper_timer = min(self.whisper_timer, 3.0)
             return
         self.whisper_timer -= dt
-        if self.whisper_timer <= 0:
-            madness = 1 - self.run.sanity / SANITY_FRAYING
-            self.whisper_timer = random.uniform(1.5, 4.0) * (1.2 - madness)
-            # [text, x, y, life, speed]
-            self.whispers.append([random.choice(WHISPERS),
-                                  random.randint(0, WIDTH - 200), random.randint(60, 300),
-                                  3.0, random.choice((-20, 20))])
+        if self.whisper_timer > 0:
+            return
+        if tier == UNEASY:
+            self.whisper_timer = random.uniform(5.0, 9.0)
+            size, alpha, color = 26, 80, (150, 120, 190)
+        else:
+            madness = 1 - self.run.sanity / SANITY_FRAYING        # 0 at 30, 1 at 0
+            self.whisper_timer = random.uniform(0.5, 1.8) * (1.1 - 0.6 * madness)
+            size = random.choice((26, 30, 36, 44))
+            alpha = 150
+            color = random.choice([(150, 120, 190), (200, 60, 70), (230, 200, 210)])
+        # [text, x, y, life, speed, size, alpha, colour]
+        text = random.choice(WHISPERS)
+        width = ui.font(size).size(text)[0]
+        self.whispers.append([text, random.randint(0, max(1, WIDTH - width)),
+                              random.randint(60, 330), 3.0, random.choice((-24, -12, 12, 24)),
+                              size, alpha, color])
 
     def draw(self):
         self.world.fill((0, 0, 0))
@@ -299,34 +337,48 @@ class Game:
         pygame.display.flip()
 
     def draw_sanity_fx(self, surface):
+        """Lucid: nothing. Uneasy: a slight black vignette. Fraying: a red,
+        pulsing vignette that beats faster as sanity falls."""
         sanity = self.run.sanity
-        if sanity < 85:
-            surface.blit(art.vignette(1 - sanity / 85), (0, 0))
-        if sanity < SANITY_MAD:
-            pulse = (math.sin(self.time * 3) + 1) / 2
-            self.red.fill((120, 0, 20, int(20 + 40 * pulse)))
-            surface.blit(self.red, (0, 0))
-        for text, x, y, life, _ in self.whispers:
-            img = ui.font(30).render(text, True, (150, 120, 190))
-            img.set_alpha(int(min(1.0, life, 3.0 - life) * 110))
+        tier = sanity_tier(sanity)
+        if tier == UNEASY:
+            # 0.2 at 70 sanity, up to 0.5 at 31
+            t = (SANITY_LUCID - sanity) / (SANITY_LUCID - SANITY_FRAYING)
+            surface.blit(art.vignette(0.2 + 0.3 * t), (0, 0))
+        elif tier == FRAYING:
+            madness = 1 - max(0.0, sanity) / SANITY_FRAYING      # 0 at 30, 1 at 0
+            surface.blit(art.vignette(0.6 + 0.2 * madness), (0, 0))
+            beat = 2.5 + 4.0 * madness
+            pulse = (math.sin(self.time * beat) + 1) / 2
+            red = art.vignette(0.7 + 0.3 * madness, (170, 0, 24))
+            red.set_alpha(int(110 + 145 * pulse))
+            surface.blit(red, (0, 0))
+            red.set_alpha(255)
+        for text, x, y, life, _, size, alpha, color in self.whispers:
+            img = ui.font(size).render(text, True, color)
+            img.set_alpha(int(min(1.0, life, 3.0 - life) * alpha))
             surface.blit(img, (x, y))
 
     def draw_hud(self, surface):
         """Name, act and the one bar that matters: sanity, which is also his health."""
         run = self.run
         ui.panel(surface, (8, 8, 330, 52), 170)
-        ui.draw_text(surface, ui.font(22), f"{run.name}  -  Act {run.act}", BONE, topleft=(16, 12))
+        head = f"{run.name}  -  Act {run.act}"
+        if run.difficulty != "normal":
+            head += f"  ({DIFFICULTY[run.difficulty]['name']})"
+        ui.draw_text(surface, ui.font(22), ui.fit(head, ui.font(22), 310), BONE, topleft=(16, 12))
         bar = (16, 32, 220, 18)
         ui.draw_bar(surface, bar, run.sanity / run.max_sanity, SANITY_COL)
         if run.shield > 0:
             ui.draw_bar(surface, (16, 32, 220, 5), run.shield / MAX_SHIELD, SHIELD_COL,
                         border=SHIELD_COL)
-        for mark in (SANITY_LUCID, SANITY_FRAYING, SANITY_MAD):   # where the words change
+        for mark in (SANITY_LUCID, SANITY_FRAYING):   # where the words change
             x = 16 + int(220 * mark / run.max_sanity)
             pygame.draw.line(surface, GRAY, (x, 30), (x, 51), 1)
-        tier = TIER_NAMES[sanity_tier(run.sanity)]
+        tier = sanity_tier(run.sanity)
         ui.draw_text(surface, ui.font(20), f"Sanity {run.sanity:.0f}", WHITE, midleft=(22, 41))
-        ui.draw_text(surface, ui.font(20), tier, SANITY_COL, midleft=(246, 41))
+        colour = [SANITY_COL, (200, 160, 230), (235, 70, 80)][tier]
+        ui.draw_text(surface, ui.font(20), TIER_NAMES[tier], colour, midleft=(246, 41))
 
     def draw_pause(self, surface):
         surface.blit(self.shade, (0, 0))

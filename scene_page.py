@@ -75,7 +75,7 @@ class PageScene:
         self.options = [("spell", k) for k in keys] + [("burn", None)]
         self.selected = 0
         self.time = 0.0
-        # cyan while calm, violet when shaken, crimson when mad
+        # cyan while lucid, violet when uneasy, crimson when fraying
         self.look = art.HERO_LOOK[sanity_tier(self.sanity)]
         self.art = art.page_image(self.look, 250)
         game.sound.play("page")

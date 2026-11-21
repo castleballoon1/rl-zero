@@ -8,7 +8,7 @@ import os
 import random
 
 from settings import (START_SANITY, MAX_SANITY, MAX_SHIELD,
-                      GRIMOIRE_SIZE, SAVE_FILE)
+                      GRIMOIRE_SIZE, SAVE_FILE, DIFFICULTY)
 from spells import OwnedSpell, STARTER_SPELLS, SPELLS, default_unlocked
 
 
@@ -20,6 +20,7 @@ class SaveData:
         self.wins = 0
         self.best_act = 0
         self.best_score = 0
+        self.difficulty = "normal"     # the last one chosen, offered first next time
         self.load()
 
     def load(self):
@@ -35,13 +36,16 @@ class SaveData:
         self.wins = int(data.get("wins", 0))
         self.best_act = int(data.get("best_act", 0))
         self.best_score = int(data.get("best_score", 0))
+        if data.get("difficulty") in DIFFICULTY:
+            self.difficulty = data["difficulty"]
 
     def save(self):
         try:
             with open(self.path, "w") as f:
                 json.dump(dict(unlocked=self.unlocked, runs=self.runs,
                                wins=self.wins, best_act=self.best_act,
-                               best_score=self.best_score), f,
+                               best_score=self.best_score,
+                               difficulty=self.difficulty), f,
                           indent=2)
         except OSError:
             pass
@@ -56,8 +60,10 @@ class SaveData:
 
 
 class RunState:
-    def __init__(self, name, seed):
+    def __init__(self, name, seed, difficulty="normal"):
         self.name = name or "Lost Boy"
+        self.difficulty = difficulty if difficulty in DIFFICULTY else "normal"
+        self.endless = False       # True once he turns back into the woods after act 3
         self.seed = seed if seed else str(random.randint(10000, 99999))
         self.max_sanity = MAX_SANITY
         self.sanity = START_SANITY     # his only health

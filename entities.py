@@ -7,9 +7,10 @@ import pygame
 import art
 import sprites
 import ui
-from bestiary import TRAITS
+from bestiary import TRAITS, RAGE_STYLE_BONUS
 from settings import (WIDTH, GROUND_Y, GRAVITY, JUMP_SPEED, MOVE_SPEED,
-                      PLAYER_FRAME_TIME, RAGE_SPEED, HEAVY_EVERY)
+                      PLAYER_FRAME_TIME, RAGE_SPEED, HEAVY_SHOWS_AT, QUICK_FRACTION,
+                      PACE_WOBBLE, FEINT_PAUSE, FEINT_RECOVER, FLURRY_GAP)
 
 Vector2 = pygame.math.Vector2
 HURT_TIME = 0.3          # how long the hurt row plays after a hit
@@ -344,24 +345,36 @@ class CombatEnemy:
         self.max_hp = data["hp"]
         self.hp = float(data["hp"])
         self.dmg = data["dmg"]
+        self.base_dmg = data["dmg"]   # before any Withering Word
         self.interval = data["interval"]
         self.boss = data["boss"]
         self.rage_text = data.get("rage", "")
         self.trait = data.get("trait", "")
         self.attack_text = data.get("attack_text", f"The {self.name} attacks!")
         self.raged = False
+        # habits that keep it from keeping a steady beat (see STYLES in bestiary.py)
+        self.style = data.get("style", dict(quick=0.0, feint=0.0, flurry=0.0,
+                                            heavy=0.3, wobble=0.0))
+        self.cooldown = data.get("cooldown", 1.0)
+        self.rng = rng
+        self.pace_phase = rng.uniform(0, math.tau)
+        self.pace_freq = rng.uniform(0.6, 1.5)
+        self.heavy_next = rng.random() < self.style["heavy"]
+        self.feinting = 0.0       # seconds left rearing up in a feint
+        self.feinted = False      # it just feinted, so the next fill is real
+        self.chain = 0            # 1 while a flurry's second blow is coming
         self.art = art.creature_frames(data["art"], tall)
         self.feet = (round(feet_x), round(ground_y - art.creature_hover(data["art"], tall)))
         # the painted pixels of the idle pose: used for bars, targets and hit sparks
         self.body = sprites.body_rect(self.art["idle"][0], self.feet)
         # first attack comes a little later so the player can get ready
-        self.timer = rng.uniform(*self.interval) + 1.5
+        self.timer = rng.uniform(*self.interval) + 1.5 * self.cooldown
         self.timer_max = self.timer
         self.anim = rng.random()
         self.flash = 0.0          # time left on the hurt row
         self.lunge = 0.0          # time left on the attack row
         self.windup = False       # rearing up while the player types a DEFEND word
-        self.attacks = 0          # how many times it has attacked (every 3rd is heavy)
+        self.attacks = 0          # how many times it has attacked
         self.dead = False
         self.death_time = 0.0
         self.dots = []            # [damage_per_tick, ticks_left, time_to_next_tick]
@@ -380,17 +393,77 @@ class CombatEnemy:
         self.flash = HURT_TIME
         return dealt
 
+    def chance(self, habit):
+        """How likely this creature is to do something (quick, feint, flurry ...)."""
+        extra = RAGE_STYLE_BONUS.get(habit, 0.0) if self.raged else 0.0
+        return self.style.get(habit, 0.0) + extra
+
     def next_is_heavy(self):
-        return (self.attacks + 1) % HEAVY_EVERY == 0
+        return self.heavy_next
+
+    def shows_heavy(self):
+        """The magenta warning only shows once the bar is well along."""
+        return self.heavy_next and self.bar_fraction() >= HEAVY_SHOWS_AT
+
+    def bar_fraction(self):
+        if self.feinting > 0:
+            return 1.0
+        return 1 - self.timer / max(0.01, self.timer_max)
+
+    def pace(self):
+        """How fast its attack bar fills right now: it speeds up and slows down."""
+        wobble = PACE_WOBBLE * self.style.get("wobble", 0.0)
+        return 1 + wobble * math.sin(self.anim * self.pace_freq + self.pace_phase)
 
     def strike(self):
         self.windup = False
         self.lunge = LUNGE_TIME
 
+    def set_timer(self, seconds):
+        self.timer = seconds
+        self.timer_max = seconds
+
     def reset_timer(self, rng):
+        """Wait for the next attack: a random time, sometimes cut short."""
         scale = 1 / RAGE_SPEED if self.raged else 1.0
-        self.timer = rng.uniform(*self.interval) * scale
-        self.timer_max = self.timer
+        wait = rng.uniform(*self.interval) * scale
+        if rng.random() < self.chance("quick"):
+            wait *= rng.uniform(*QUICK_FRACTION)          # a quick strike
+        self.set_timer(wait)
+        self.heavy_next = rng.random() < self.chance("heavy")
+
+    def tick(self, dt, rng):
+        """Run its attack clock. Returns 'attack', 'feint' or None."""
+        if self.feinting > 0:
+            self.feinting -= dt
+            if self.feinting <= 0:
+                # it holds back ... and comes again soon after
+                self.windup = False
+                self.set_timer(rng.uniform(*FEINT_RECOVER) * self.cooldown)
+            return None
+        self.timer -= dt * self.pace()
+        if self.timer > 0:
+            return None
+        if not self.feinted and self.chain == 0 and rng.random() < self.chance("feint"):
+            self.feinted = True
+            self.feinting = FEINT_PAUSE
+            self.windup = True
+            return "feint"
+        self.feinted = False
+        self.reset_timer(rng)
+        return "attack"
+
+    def after_blow(self, rng):
+        """Called when one of its blows is over. Returns True if a flurry follows."""
+        if self.dead or self.chain:
+            self.chain = 0
+            return False
+        if rng.random() < self.chance("flurry"):
+            self.chain = 1
+            self.set_timer(rng.uniform(*FLURRY_GAP) * self.cooldown)
+            self.heavy_next = False
+            return True
+        return False
 
     def update(self, dt):
         """Returns the rot damage dealt this frame (0 most frames)."""
@@ -454,9 +527,9 @@ class CombatEnemy:
         ui.draw_text(surface, ui.font(22), self.name, col, midbottom=(body.centerx, top))
         ui.draw_bar(surface, (body.centerx - w // 2, top + 2, w, 8),
                     self.hp / self.max_hp, (200, 50, 60))
-        frac = 1 - self.timer / max(0.01, self.timer_max)
+        frac = self.bar_fraction()
         warn = (255, 120, 60) if frac > 0.8 else (200, 170, 90)
-        if self.next_is_heavy():
+        if self.shows_heavy():
             warn = (255, 60, 200)      # a magenta bar warns that a HEAVY blow is coming
         ui.draw_bar(surface, (body.centerx - w // 2, top + 13, w, 4), frac, warn)
         if self.trait:

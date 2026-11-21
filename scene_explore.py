@@ -6,11 +6,10 @@ import pygame
 
 import art
 import ui
-from bestiary import ACTS, scaled_enemy, boss_for
+from bestiary import act_info, scaled_enemy, boss_for
 from entities import Layer, Player, MapEnemy, burst
 from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE,
                       BRAMBLE_DAMAGE, MOTE_SANITY, SHRINE_SANITY, MISS_COL, SANITY_COL)
-from words import sanity_tier
 from worldgen import generate_act
 
 
@@ -23,7 +22,7 @@ class ExploreScene:
         self.game = game
         run = game.run
         self.level = generate_act(run.seed, run.act)
-        self.info = ACTS[run.act]
+        self.info = act_info(run.act)
         # the painted forest if its art is there, otherwise woods drawn with shapes
         self.scene = art.forest_scene()
         if self.scene:
@@ -85,7 +84,8 @@ class ExploreScene:
             self.interact()
         elif event.key == pygame.K_RETURN:
             if self.player.hitbox.colliderect(self.gate_rect.inflate(60, 0)):
-                self.game.start_combat([boss_for(self.game.run.act)], True, None)
+                run = self.game.run
+                self.game.start_combat([boss_for(run.act, run.difficulty)], True, None)
 
     def interact(self):
         run = self.game.run
@@ -135,7 +135,7 @@ class ExploreScene:
                 # the creature's painted body, narrowed so you really walk into it
                 if self.player.hitbox.colliderect(enemy.body.inflate(-enemy.body.width // 3, 0)):
                     act = self.game.run.act
-                    datas = [scaled_enemy(k, act) for k in enemy.kinds]
+                    datas = [scaled_enemy(k, act, self.game.run.difficulty) for k in enemy.kinds]
                     self.game.start_combat(datas, False, enemy.index)
                     return
 

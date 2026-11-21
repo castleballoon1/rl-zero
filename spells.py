@@ -16,7 +16,8 @@ class SpellDef:
     key: str
     name: str
     incantation: str
-    kind: str            # damage, aoe, drain, dot, slow, execute, shield, sanity, regen, pact
+    kind: str            # damage, aoe, drain, dot, slow, execute, shield, sanity, regen, pact,
+                         # weaken, interrupt, mirror, echo, plague, desperate
     power: float         # strength per letter
     sanity_cost: int
     element: str
@@ -51,6 +52,12 @@ SPELL_LIST = [
              "common", "Your mind knits itself back together over 6 seconds."),
     SpellDef("clarity", "Clarity", "mens clara manet", "sanity", 1.2, 0, "mind",
              "common", "Steady the mind at once, and lift every hex."),
+    SpellDef("cinder", "Cinder Rain", "pluvia cinerum", "aoe", 1.6, 5, "fire",
+             "common", "Ash and embers fall on every foe."),
+    SpellDef("wither", "Withering Word", "marcesce vis tua", "weaken", 1.5, 4, "mind",
+             "common", "Wounds the target and saps its blows by 30% for the fight."),
+    SpellDef("shatter", "Shatter Stride", "frange impetum", "interrupt", 2.2, 5, "storm",
+             "common", "Wounds the target and knocks its attack bar back to empty."),
     # --- rare -------------------------------------------------------------
     SpellDef("rot", "Hex of Rot", "putresce caro mortalis", "dot", 3.2, 6, "rot",
              "rare", "The target rots over six seconds."),
@@ -76,27 +83,46 @@ SPELL_LIST = [
     SpellDef("finalword", "Final Word", "verbum ultimum", "execute", 2.6, 6, "mind",
              "rare", "Double damage to a foe below 30% health.",
              unlock="Cast a 20+ letter incantation with 100% accuracy"),
+    SpellDef("mirror", "Mirror Veil", "speculum reddit ictum", "mirror", 1.0, 6, "ward",
+             "rare", "The next blow that would land is turned back on its maker, harder."),
+    SpellDef("echo", "Echo", "echo verborum redit", "echo", 3.4, 3, "mind",
+             "rare", "Your last spell sounds again, weaker (%), for free.",
+             unlock="Defeat The Lantern Stag"),
+    SpellDef("plague", "Creeping Plague", "lues per omnes serpit", "plague", 2.0, 9, "rot",
+             "rare", "Every foe rots over six seconds.",
+             unlock="Defeat The Rootbound Pilgrim"),
     # --- forbidden ------------------------------------------------------
     SpellDef("blacksun", "Black Sun", "sol niger ardet in me", "damage", 4.0, 15,
              "void", "forbidden", "A sun that gives no light. Costs dearly."),
     SpellDef("gaze", "The Gate's Gaze", "oculus ultra portam aperitur", "damage",
              4.5, 20, "void", "forbidden", "Something behind the gate looks back.",
-             unlock="Win a fight while Mad (sanity below 15)"),
+             unlock="Win a fight with under 15 sanity"),
     SpellDef("hymn", "Starless Hymn", "cantus sine stellis omnia devorat", "aoe",
              3.2, 18, "void", "forbidden", "Sing the song that ate the stars.",
              unlock="Defeat The Starved Bellwether"),
+    SpellDef("bloodprice", "Blood Price", "sanguis pro verbis meis", "desperate", 2.6, 10,
+             "bone", "forbidden", "The less sanity you have left, the harder it hits (up to x2.5).",
+             unlock="Win a fight while Fraying (30 sanity or below)"),
 ]
 
 SPELLS = {s.key: s for s in SPELL_LIST}
 STARTER_SPELLS = ["ember", "frost", "ward"]
-DAMAGE_KINDS = ("damage", "aoe", "drain", "dot", "slow", "execute")
+DAMAGE_KINDS = ("damage", "aoe", "drain", "dot", "slow", "execute", "weaken",
+                "interrupt", "plague", "desperate")
+# spells that send a bolt at foes (the rest are cast on the boy himself)
+TARGET_KINDS = ("damage", "drain", "dot", "execute", "weaken", "interrupt", "desperate")
+ALL_FOES_KINDS = ("aoe", "slow", "plague")
 TIER_WEIGHT = {"common": 3, "rare": 2, "forbidden": 1}
 
 KIND_LABEL = {
     "damage": "Damage", "aoe": "All foes", "drain": "Drain", "dot": "Rot",
     "slow": "Delay all", "execute": "Execute", "regen": "Regain", "shield": "Shield",
-    "sanity": "Sanity", "pact": "Empower",
+    "sanity": "Sanity", "pact": "Empower", "weaken": "Weaken", "interrupt": "Stagger",
+    "mirror": "Mirror +", "echo": "Echo", "plague": "Plague all", "desperate": "Damage",
 }
+WEAKEN = 0.70            # Withering Word: the target's blows keep this share ...
+WEAKEN_FLOOR = 0.40      # ... but never fall below this share of the original
+DESPERATE_MAX = 1.5      # Blood Price: up to +150% at no sanity
 
 
 def effect_text(kind, amount, before=None):
@@ -104,6 +130,8 @@ def effect_text(kind, amount, before=None):
     was = f"{before:.0f} -> " if before is not None else ""
     if kind == "pact":
         return f"Next spell +{was}{amount:.0f}%"
+    if kind == "echo":
+        return f"Echo {was}{min(100, amount):.0f}%"
     return f"{KIND_LABEL[kind]} {was}{amount:.0f}"
 
 
@@ -168,3 +196,14 @@ def page_choice_count(sanity, boss):
     """More choices are offered the lower your sanity is."""
     tier = sanity_tier(sanity)
     return (3 + tier) if boss else (2 + (tier + 1) // 2)
+
+
+def echo_fraction(amount):
+    """Echo's strength is the share of the last spell it repeats (capped at 100%)."""
+    return max(0.0, min(1.0, amount / 100))
+
+
+def desperate_bonus(sanity, max_sanity):
+    """Blood Price hits harder the less sanity is left: x1 when full, x2.5 at none."""
+    lost = 1 - max(0.0, min(1.0, sanity / max_sanity))
+    return 1 + DESPERATE_MAX * lost

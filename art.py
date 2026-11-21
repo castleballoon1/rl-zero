@@ -18,7 +18,7 @@ import pygame
 
 import enemies as creature_table
 import sprites
-from bestiary import ACTS, DEATH_SHEETS
+from bestiary import ACTS, DEATH_SHEETS, act_info
 from settings import WIDTH, HEIGHT, GROUND_Y
 
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -205,6 +205,37 @@ def campfire_surface(step):
     return surf
 
 
+def grimoire_surface(opened=0.0, size=40):
+    """The grimoire, drawn with shapes: closed (0.0) to open flat (1.0)."""
+    key = ("grimoire", round(opened * 8), size)
+    if key in _cache:
+        return _cache[key]
+    w, h = size * 2, size
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    cover, edge, page = (88, 34, 40), (40, 14, 20), (226, 214, 180)
+    open_k = max(0.0, min(1.0, round(opened * 8) / 8))
+    mid = w // 2
+    spread = int(size * (0.15 + 0.85 * open_k))       # how far each half leans out
+    lift = int(h * 0.35 * (1 - open_k))                 # a closed book stands taller
+    for side in (-1, 1):
+        far = mid + side * spread
+        cover_pts = [(mid, h - 4), (far, h - 6 - lift // 2), (far, 6 + lift // 3), (mid, 4)]
+        pygame.draw.polygon(surf, cover, cover_pts)
+        pygame.draw.polygon(surf, edge, cover_pts, 2)
+        if open_k > 0.2:
+            inset = [(mid, h - 8), (far - side * 4, h - 9 - lift // 2),
+                     (far - side * 4, 9 + lift // 3), (mid, 8)]
+            pygame.draw.polygon(surf, page, inset)
+            for k in range(3):                          # lines of ink
+                y = 14 + k * (h - 26) // 3
+                pygame.draw.line(surf, (110, 80, 90), (mid + side * 5, y),
+                                 (far - side * 9, y + 1), 1)
+    pygame.draw.line(surf, edge, (mid, 4), (mid, h - 4), 3)    # the spine
+    pygame.draw.circle(surf, (255, 200, 110), (mid, h // 2), 3)  # the clasp's stone
+    _cache[key] = surf
+    return surf
+
+
 def shadow(width):
     """A soft dark oval drawn under a character's feet."""
     key = ("shadow", width)
@@ -305,10 +336,13 @@ def parallax_layers(act_info, seed):
     return result
 
 
-def vignette(strength):
-    """Dark edges that close in as sanity drops. strength 0..1."""
+def vignette(strength, color=(10, 0, 14)):
+    """Dark edges that close in as sanity drops. strength 0..1.
+
+    color tints the edge: near-black while Uneasy, blood red while Fraying.
+    """
     level = max(0, min(10, int(strength * 10)))
-    key = ("vignette", level)
+    key = ("vignette", level, color)
     if key in _cache:
         return _cache[key]
     small_w, small_h = 96, 54
@@ -321,7 +355,7 @@ def vignette(strength):
             inner = 0.75 - 0.45 * level / 10      # dark edge creeps inward
             t = max(0.0, (d - inner) / (1 - inner)) if d > inner else 0.0
             a = int(min(255, t * 255 * (0.35 + 0.65 * level / 10)))
-            small.set_at((x, y), (10, 0, 14, a))
+            small.set_at((x, y), (*color, a))
     surf = pygame.transform.smoothscale(small, (WIDTH, HEIGHT))
     _cache[key] = surf
     return surf
@@ -332,9 +366,13 @@ def vignette(strength):
 # =============================================================================
 CHILD_SHEET = os.path.join(ASSET_DIR, "Sprites", "MC (detailed)",
                            "the child spritesheet (detailed).png")
+# The same sheet with the grimoire painted out of the calm row (made by
+# tools/remove_book.py). Used in the opening, before he finds the book.
+BOOKLESS_SHEET = os.path.join(ASSET_DIR, "Sprites", "MC (detailed)",
+                              "the child spritesheet (no book).png")
 PAGE_FILES = ["page (high sanity - cyan).png",      # lucid
-              "page (low sanity - violet).png",     # uneasy / fraying
-              "page (critical sanity - crimson).png"]  # mad
+              "page (low sanity - violet).png",     # uneasy
+              "page (critical sanity - crimson).png"]  # fraying
 DEATH_FRAME_TIME = 0.1
 DEATH_TALL = 440             # how tall the boy stands in the death scene
 
@@ -354,6 +392,7 @@ class ForestScene:
         self.tinted = {}
 
     def images(self, act):
+        act = act_info(act)["look"]          # the endless woods reuse the three looks
         if act not in self.tinted:
             tint = ACTS[act]["tint"]
             images = []
@@ -445,7 +484,7 @@ def creature_frames(kind, height):
 # --- The child -------------------------------------------------------------------
 # The detailed sheet has 3 rows, one per sanity look (calm, shaken, mad), and
 # in each row 3 right-facing pictures: stride, stand, stride.
-HERO_LOOK = [0, 1, 1, 2]     # sanity tier -> which row of the sheet to draw
+HERO_LOOK = [0, 1, 2]        # sanity tier (lucid, uneasy, fraying) -> row of the sheet
 
 # His eye. As sanity falls it is recoloured from brown towards a glowing red
 # (levels 0..EYE_RED); in the death scene it then drains to black
@@ -476,9 +515,9 @@ def _is_iris(r, g, b):
     return red or violet
 
 
-def _eye_sheet(sheet, level):
+def _eye_sheet(sheet, level, tag="book"):
     """A copy of the child's sheet with every eye recoloured for one eye level."""
-    key = ("eye_sheet", level)
+    key = ("eye_sheet", tag, level)
     if key in _cache:
         return _cache[key]
     if level <= EYE_RED:
@@ -559,6 +598,28 @@ def hero_frames(height):
     return _cache[key]
 
 
+def hero_bookless(height):
+    """The calm boy WITHOUT the grimoire, for the opening: {'right': poses, 'left': poses}.
+
+    Falls back to the usual pictures (with the book) if the sheet is missing.
+    """
+    key = ("hero_bookless", height)
+    if key in _cache:
+        return _cache[key]
+    sheet = sprites.load_image_safely(BOOKLESS_SHEET)
+    if sheet:
+        a, stand, b = _child_rows(_eye_sheet(sheet, 0, "bookless"), height)[0]
+        poses = dict(idle=stand, walk=[a, stand, b, stand], jump=a, cast=b)
+        left = {name: (sprites.flip_frames(v) if isinstance(v, list)
+                       else pygame.transform.flip(v, True, False)) for name, v in poses.items()}
+        result = dict(right=poses, left=left)
+    else:
+        hero = hero_frames(height)
+        result = {side: hero["looks"][0][0][side] for side in ("right", "left")}
+    _cache[key] = result
+    return result
+
+
 def hero_poses(hero, sanity, max_sanity=100, facing="right"):
     """The boy's poses for his current sanity: the look row and the eye colour."""
     from words import sanity_tier
@@ -591,4 +652,5 @@ def preload(report):
     report("Finding the child...")
     hero_frames(84)
     hero_frames(120)
+    hero_bookless(120)       # the opening, before he finds the grimoire
     hero_frames(DEATH_TALL)

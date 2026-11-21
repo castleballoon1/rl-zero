@@ -23,23 +23,30 @@ The plain `README` file describes the two prototypes.
 
 | Where | Keys |
 |---|---|
+| Title | **Type a word to choose it:** `start`, `codex`, `guide` or `quit` (Up/Down and Enter also work) · Left/Right for volume · any key skips the opening animation |
+| Naming the boy | Type a name and an optional seed · Tab or Up/Down to switch field · Left/Right to pick the difficulty · Enter to begin |
+| Opening scene | Type `ignis` when the grimoire asks · Esc to skip the whole scene |
 | Woods | Arrows or A/D to walk · Space/W/Up to jump (over thorns, up to the lights) · S/Down to drop through a platform · E to pray at a shrine or read a stone · Enter at the gate to fight the boss · Esc to pause |
 | Combat | Type a spell's incantation to cast it (no Enter needed) · Tab or Left/Right to switch target · Backspace to cancel the spell · Esc to pause |
-| Pages and campfires | Up/Down and Enter, or press a number |
+| Pages, campfires and the dawn | Up/Down and Enter, or press a number |
 | Codex | Left/Right to turn the page · Esc to go back |
 
 ## How it plays
 
+* **Title screen:** the name falls into place letter by letter while the boy walks in with his grimoire. Every menu choice is a word you type; type `start` and he casts a spell at the title before the screen fades.
+* **Opening scene:** the boy wakes in the woods (his eyes open, droop and open again) and gets up: the picture is cut at the waist so he sits up with his legs flat on the ground, then gets his feet under him in a crouch and stands. He has no book until he finds the glowing grimoire in the roots and it drifts into his hands; then he drives off a shadow by typing its first word, `ignis`. Esc skips it.
 * **Three acts:** The Whispering Woods, The Hollow Marsh and The Starless Grove. Each is a side-scrolling stretch of the forest with creatures on the path, shrines, lore stones and a boss gate you enter when you are ready. The woods are generated from a seed you can type in.
+  * **Each act is exponentially harder:** creatures have 1.5× the health, 1.32× the damage and attack 1.1× as often as in the act before, so act 3 creatures have 2.25× the health of act 1's.
+  * **More creatures each act:** 5 groups in act 1 (one or two creatures each), 7 in act 2 and 9 in act 3 (two or three each). The woods grow longer to hold them, and act 3 has a third shrine.
   * **Thorns** cost 6 sanity if you walk into them, so jump them.
   * **Motes of light** on platforms and in the air give +4 sanity each.
 * **Sanity is your only health.** There is no separate health bar.
   * Spells cost sanity, and every blow that lands takes it. At 0 the run ends.
   * Paying for a spell can never take your last point. A spell you cannot fully pay for still casts, but weaker in proportion (its cost shows in red).
-  * **70 or more (Lucid):** words are spelled correctly.
-  * **Below 70:** 10–55% of the letters are replaced. You type what you see.
-  * **Below 15 (Mad):** the words become garbled nonsense.
-  * As it drops the screen darkens, the letters jitter, whispers drift past, and **the boy's eye turns from brown to red**.
+  * **71–100 Lucid:** words are spelled correctly. No screen effects.
+  * **31–70 Uneasy:** 15–50% of the letters are replaced (more the lower you go). You type what you see. A slight black vignette closes in, and now and then a hallucinated word drifts past.
+  * **0–30 Fraying:** the words become garbled nonsense. A red vignette pulses at the edges, faster as sanity falls, hallucinated words crowd the screen, and his heartbeat is heard.
+  * The letters jitter more at each band, and **the boy's eye turns from brown to red** as sanity falls.
   * It comes back from shrines (+35), motes, the Clarity and Mend spells, burning a page (+20), campfires (+45) and a breath after each fight (+6).
 * **Typing combat, inspired by Typing of the Dead:** your grimoire's spells are listed at the bottom of the screen.
   * The first letters you type pick the spell. After that, a wrong key counts as a mistake and does not move you forward.
@@ -52,13 +59,27 @@ The plain `README` file describes the two prototypes.
   * Type it in time to **dodge**.
   * Type it before the marker line at 90%+ accuracy to **deflect** half the damage back.
   * Get halfway through and you're **grazed** for half damage.
-  * **Every third attack of a creature is a heavy blow:** its attack bar turns magenta beforehand, the word is one step harder, and it takes 1.5× the sanity.
+  * **Heavy blows** are rolled at random (about 30% of attacks; more for the Lantern Stag). The attack bar turns magenta once it is past halfway, the word is one step harder, and it takes 1.5× the sanity.
+  * **Creatures keep no steady beat.** The wait between attacks is wide and random, and each attack bar speeds up and slows down as it fills. Each creature has its own habits (`STYLES` in `bestiary.py`):
+    * **Quick strikes** come after only 40–65% of the usual wait (the Mire Maw does this most).
+    * **Feints:** the creature rears up, holds back, and strikes for real 0.7–1.6 s later (the Moth Choir does this most).
+    * **Flurries:** a second blow follows the first almost at once ("Again!"; the Rootbound Pilgrim does this most).
+    * Bosses feint and flurry more, and more still once enraged.
   * **The lower your sanity, the harder the words:** short words above 75%, longer words between 45% and 75%, phrases below 45%, and phrases with misspelled letters below 20%. You get 0.6 s plus time per letter, and the typing speed that time assumes rises at each step.
 * **Pages, like Balatro's boss blinds:**
   * A dying creature dissolves into a page (its death sheet plays). Bosses drop a full page, ordinary fights a scrap.
-  * **The lower your sanity when you read it,** the higher its potency (up to ×1.9), the more spells you can choose from (up to 6), and below 40 sanity forbidden spells appear. The page is cyan when you are calm, violet when shaken, crimson when mad.
+  * **The lower your sanity when you read it,** the higher its potency (up to ×1.9), the more spells you can choose from (up to 5), and below 40 sanity forbidden spells appear. The page is cyan when you are Lucid, violet when Uneasy, crimson when Fraying.
   * Picking a spell you already own empowers it by one level. You can also burn the page for +20 sanity.
 * **Campfires:** after the first and second boss you pick one: regain 45 sanity, raise one spell by a level, or take one of two relics.
+* **Dawn and the endless woods:** beating the third boss counts as an escape. Then you choose: walk out of the woods (the run ends in victory) or turn back into the dark. The endless woods repeat the three acts' looks ("Deeper I: The Whispering Woods" ...), with every creature roaming, one more group each act (up to 12), and a campfire between acts. Past act 3, every act multiplies the creatures' health by 1.15, their damage by 1.10 and how often they attack by 1.06, and their feints, flurries and first attacks come back 6% sooner. No creature waits less than 1.6 s between attacks. The bosses return as "The Deeper ..." versions.
+* **Difficulty levels,** picked when you name the boy (the last one is remembered):
+
+  | Level | Creature health | Damage | Attack speed | Time on Defend words |
+  |---|---|---|---|---|
+  | Story | ×0.75 | ×0.6 | ×0.85 | ×1.35 |
+  | Normal | ×1 | ×1 | ×1 | ×1 |
+  | Hard | ×1.25 | ×1.25 | ×1.12 | ×0.9 |
+  | Nightmare | ×1.5 | ×1.5 | ×1.25 | ×0.8 |
 * **Death:** when sanity reaches 0 the screen goes black, the boy stands alone in the middle, and his eye burns to full red and then drains to black. Any key skips to the end screen.
 * **Scene changes** fade through black.
 * **Score, codex, permadeath:** each run ends with a score and the best is saved. The codex on the title menu lists every spell (and how to unlock the sealed ones), relic and trait. Death resets your grimoire; unlocked spells are kept in `save.json`.
@@ -70,8 +91,8 @@ The plain `README` file describes the two prototypes.
 | Moth Choir | All acts | **Stare:** drains sanity for as long as it lives |
 | Mire Maw | All acts | **Drink:** heals by the sanity it takes from you |
 | Lantern Stag | Acts 2–3; boss of act 1 | **Hex:** a blow that lands scrambles one of your spells until you cast it |
-| Rootbound Pilgrim | Act 3; boss of act 2 | **Grasp:** its attacks never use the short Defend words |
-| Starved Bellwether | Boss of act 3 | **Toll:** sometimes rings its bell instead of striking, which costs 4 sanity and scrambles a spell |
+| Rootbound Pilgrim | Act 3 and the endless woods; boss of act 2 | **Grasp:** its attacks never use the short Defend words |
+| Starved Bellwether | Boss of act 3; roams the endless woods | **Toll:** sometimes rings its bell instead of striking, which costs 4 sanity and scrambles a spell |
 
 ## Spells
 
@@ -83,6 +104,9 @@ The plain `README` file describes the two prototypes.
 | Spark Lash | fulgur verbera | Damage | Available from the start |
 | Mend | sana vulnus meum | Regain sanity over 6 s (free) | Available from the start |
 | Clarity | mens clara manet | Regain sanity at once and lift every hex (free) | Available from the start |
+| Cinder Rain | pluvia cinerum | Hits all foes (cheap) | Available from the start |
+| Withering Word | marcesce vis tua | Damage; the target's blows take 30% less for the fight (never below 40% of the original) | Available from the start |
+| Shatter Stride | frange impetum | Damage; knocks the target's attack bar back to empty and breaks off a feint | Available from the start |
 | Hex of Rot | putresce caro mortalis | Damage over 6 s | Available from the start |
 | Bone Spear | os hasta perforat | Heavy damage | Available from the start |
 | Whisper Pact | foedus susurri in tenebris | Pay sanity; your next attack hits about 90% harder | Available from the start |
@@ -92,9 +116,13 @@ The plain `README` file describes the two prototypes.
 | Thorn Cage | spinae te claudunt | Damage + delays the target 3 s | Deflect 8 attacks in one run |
 | Grimoire Flare | lumen lucernae exardescit | Hits all foes | Cast 40 spells in one run |
 | Final Word | verbum ultimum | Double damage to a foe below 30% health | Cast a 20+ letter incantation at 100% accuracy |
+| Mirror Veil | speculum reddit ictum | The next blow that would land is turned back on its maker, plus the spell's strength | Available from the start |
+| Echo | echo verborum redit | Your last spell sounds again at about 58% (more with levels), for free | Beat The Lantern Stag |
+| Creeping Plague | lues per omnes serpit | Every foe rots over 6 s | Beat The Rootbound Pilgrim |
 | Black Sun | sol niger ardet in me | Huge damage (forbidden) | Available from the start |
-| The Gate's Gaze | oculus ultra portam aperitur | Massive damage (forbidden) | Win a fight while Mad |
+| The Gate's Gaze | oculus ultra portam aperitur | Massive damage (forbidden) | Win a fight with under 15 sanity |
 | Starless Hymn | cantus sine stellis omnia devorat | Massive damage to all foes (forbidden) | Beat The Starved Bellwether |
+| Blood Price | sanguis pro verbis meis | Damage that grows as your sanity falls, up to ×2.5 (forbidden) | Win a fight while Fraying |
 
 Each healing spell cast in one fight restores 60% of what the last one did. Every spell that isn't a starter only shows up on a page. Forbidden spells also need you to read the page below 40 sanity.
 
@@ -117,7 +145,8 @@ Each healing spell cast in one fight restores 60% of what the last one did. Ever
 |---|---|
 | `assets/Scene/*` | The forest in the woods, fights, campfires and menus (loaded through `scene.py`). Acts 2 and 3 tint it. |
 | `assets/Sprites/Enemies/*` | Idle, hurt and attack rows (through `enemies.py`), plus the `*death*` sheets, which end in the dropped page |
-| `assets/Sprites/MC (detailed)/` | The child. The three rows are his calm, shaken and mad looks. His eye is recoloured in code as sanity falls (the eye boxes are listed in `art.py`). |
+| `assets/Sprites/MC (detailed)/the child spritesheet (no book).png` | The child's calm row with the grimoire painted out, for the opening before he finds it. Made from the main sheet by `tools/remove_book.py` (run it again if the sheet is re-exported). |
+| `assets/Sprites/MC (detailed)/` | The child. The three rows are his Lucid, Uneasy and Fraying looks. His eye is recoloured in code as sanity falls (the eye boxes are listed in `art.py`). |
 | `assets/Sprites/drops/` | The page on the reward screen, coloured by sanity |
 
 All text uses a medieval, blackletter-style pixel font drawn in code (`pixelfont.py`), with a black outline. Every letter is a grid of dots listed in that file, so no font file is needed.
@@ -140,7 +169,7 @@ The music is five recorded tracks, all **CC0 (public domain)** from OpenGameArt,
 
 When the scene changes, the old track fades out and the new one fades in. To swap a track, replace its file; if a file is missing a quiet drone plays instead.
 
-The 45 sound effects are all generated in code by `sound.py`: key clicks that climb in pitch through a word, a different cast sound per element, blows, dodges and deflects, burnout, hexes, the bell's toll, a boss's rage, footsteps, jumps and landings, motes and shrines, menu sounds, scene fades, and a heartbeat below 40 sanity. A file named `assets/audio/sfx_<name>.wav` replaces the generated effect of that name.
+The 45 sound effects are all generated in code by `sound.py`: key clicks that climb in pitch through a word, a different cast sound per element, blows, dodges and deflects, burnout, hexes, the bell's toll, a boss's rage, footsteps, jumps and landings, motes and shrines, menu sounds, scene fades, and a heartbeat while Fraying (30 sanity or below). A file named `assets/audio/sfx_<name>.wav` replaces the generated effect of that name.
 
 ## Code layout (course concepts)
 
@@ -148,7 +177,8 @@ The 45 sound effects are all generated in code by `sound.py`: key clicks that cl
 |---|---|---|
 | `main.py` | `Game`: window, clock, main loop, scene state machine with fades, the sanity bar, pause, screen shake, sanity effects | Game loop, dt capped at 0.05, finite state machine, render target + shake |
 | `settings.py` | All tuning numbers | Named constants |
-| `scene_menus.py` | Title (with volume), codex, how-to, name and seed entry, the death scene, end screens | Menus, conditional rendering, `enumerate` |
+| `scene_menus.py` | Animated typed title, codex, how-to, name/seed/difficulty entry, the dawn choice, the death scene, end screens | Menus, animation over time, conditional rendering, `enumerate` |
+| `scene_intro.py` | The opening scene: a list of timed beats with typed-out captions, and one beat that waits for the player to type | Scripted sequences, state machines, timers |
 | `scene_explore.py` | Scrolling woods: camera, one-way platforms, enemy contact, hazards, shrines, gate | Screen scrolling, parallax, rect collision |
 | `scene_combat.py` | Typing combat, defense prompts, projectiles | Event-driven input, timers, cooldowns |
 | `scene_page.py` | Choosing a spell from a page | Weighted random choices |
@@ -165,7 +195,10 @@ The 45 sound effects are all generated in code by `sound.py`: key clicks that cl
 
 * `settings.py`: sanity thresholds, the crit constant, the deflect window, Focus, thorn damage, sanity regained from shrines, motes, fights and campfires.
 * `settings.py`, under **Burnout**, **Defend words** and **Scene changes**: how many casts burn a spell out and for how long, how much time a Defend word allows, and the fade length.
-* `settings.py`, under **Difficulty**: `FOE_HEALTH`, `FOE_DAMAGE`, `FOE_SPEED`, growth per act, heavy blows and boss rage. Lower the first three towards 1.0 for an easier game.
+* `settings.py`, under **Sanity tiers**: where Lucid, Uneasy and Fraying begin, and how many letters Uneasy replaces.
+* `settings.py`, under **Difficulty**: `FOE_HEALTH`, `FOE_DAMAGE`, `FOE_SPEED`, the exponential growth per act (`ACT_*_GROWTH`), heavy blows and boss rage. Lower the first three towards 1.0 for an easier game.
+* `settings.py`, under **Unpredictable foes**, **Difficulty levels** and **Endless woods**: quick strikes, feints, flurries and how unevenly bars fill; the four levels; how much harder each endless act gets.
+* `bestiary.py`: `STYLES` sets each creature's habits; `ACTS` sets how many groups roam each act and how big they are.
 * `spells.py`: spell power and cost. `relics.py`: relics.
 * `bestiary.py`: creature stats, traits, bosses and which creatures roam each act.
 * `scene_combat.py` (top): how tall creatures are drawn in a fight and where they stand.

@@ -10,6 +10,9 @@
 * Some enemies have a trait (HEX, STARE, DRINK, TOLL, DIRGE; see bestiary).
 * When an enemy's attack bar fills, a DEFEND word appears. Type it in time to
   dodge, type it fast and clean to deflect. Lower health = harder words.
+* Enemies keep no steady beat: their bars fill unevenly, some strikes come
+  early, some rear up and hold back (a feint), some blows come twice (a
+  flurry), and heavy blows are rolled at random (see STYLES in bestiary.py).
 """
 import math
 import random
@@ -18,7 +21,7 @@ import pygame
 
 import art
 import ui
-from bestiary import ACTS
+from bestiary import act_info
 from entities import (Layer, CombatEnemy, Projectile, FloatingText, burst, Ring,
                       RuneCircle)
 from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE, MISS_COL,
@@ -26,10 +29,11 @@ from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE, MISS_COL
                       DEFLECT_TIME_FRACTION, REFLECT_FRACTION, GREEN, SHIELD_COL)
 from settings import (CRIT_MULT, FOCUS_MAX, FOCUS_ACCURACY, FOCUS_BREAK,
                       FOCUS_BONUS, HEAVY_DAMAGE, BURNOUT_CASTS, HEAT_FADE_TIME,
-                      BURNOUT_TIME, SOOTHE_FADE)
-from spells import cast_amount, crit_chance, effect_text, cost_text
+                      BURNOUT_TIME, SOOTHE_FADE, DIFFICULTY)
+from spells import (cast_amount, crit_chance, effect_text, cost_text, TARGET_KINDS,
+                    ALL_FOES_KINDS, WEAKEN, WEAKEN_FLOOR, echo_fraction, desperate_bonus)
 from typing_engine import TypingSession
-from words import corrupt, sanity_tier, defense_prompt, TIER_NAMES, LETTERS
+from words import corrupt, sanity_tier, defense_prompt, LETTERS
 
 ROW_H = 46                        # one spell in the grimoire panel
 PANEL_Y = HEIGHT - (4 * ROW_H + 30)   # top of the grimoire panel
@@ -53,7 +57,7 @@ class CombatScene:
         self.music = "boss" if boss else "battle"
         self.encounter_index = encounter_index
         self.rng = random.Random()
-        info = ACTS[self.run.act]
+        info = act_info(self.run.act)
         self.scene = art.forest_scene()
         if self.scene:
             # a fixed spot in the woods, different for each fight
@@ -84,6 +88,9 @@ class CombatScene:
         self.empower = 0.0           # bonus waiting for the next attack (Whisper Pact)
         self.regen = [0.0, 0.0]      # [sanity per second, seconds left] (Mend)
         self.soothes = 0             # healing spells cast this fight (each is weaker)
+        self.mirror = 0.0            # Mirror Veil: bonus damage waiting to turn a blow back
+        self.last_release = None     # (spell, amount) of the last spell, for Echo
+        self.level = DIFFICULTY.get(self.run.difficulty, DIFFICULTY["normal"])
         self.effects = []            # casting circles and impact rings
 
         self.hero = art.hero_frames(HERO_TALL)
@@ -292,11 +299,11 @@ class CombatScene:
             self.game.sound.play("burnout")
             self.say(f"{spell.name} burns out! Use another spell for {BURNOUT_TIME:.0f} seconds.")
 
-        kind = spell.kind
-        color = ELEMENT_COLORS[spell.element]
         px, py = self.player_center()
-        attack = kind in ("damage", "drain", "dot", "execute", "aoe", "slow")
-        if attack and self.empower:
+        if spell.kind == "desperate":
+            # Blood Price: what you have lost is what it spends
+            amount *= desperate_bonus(run.sanity + paid, run.max_sanity)
+        if spell.kind in TARGET_KINDS + ALL_FOES_KINDS and self.empower:
             amount *= 1 + self.empower
             self.empower = 0.0
             self.floaters.append(FloatingText("Empowered!", (px + 40, py - 118), (190, 120, 255), 26))
@@ -304,7 +311,7 @@ class CombatScene:
         # the casting animation: he raises the book, a rune circle opens at his
         # feet, and the bolt leaves a moment later
         self.cast_anim = 0.55
-        self.effects.append(RuneCircle((PLAYER_X, STAGE_GROUND - 3), color))
+        self.effects.append(RuneCircle((PLAYER_X, STAGE_GROUND - 3), ELEMENT_COLORS[spell.element]))
         if starved:
             self.say("Too little sanity left: the spell comes out weak.", 2.0)
         line = f"{spell.name}  {accuracy * 100:.0f}%  {cps:.1f} c/s"
@@ -313,18 +320,47 @@ class CombatScene:
             self.floaters.append(FloatingText("Crit!", (px + 40, py - 104), GOLD, 34, 1.4, 30))
             self.game.sound.play("crit")
         self.game.sound.play_cast(spell.element)
-        burst(self.particles, (px + 20, py - 20), color, 18, speed=(40, 180))
+        if cost:
+            self.floaters.append(FloatingText(f"-{cost:.0f} sanity", (px - 30, py + 10),
+                                              SANITY_COL, 22, 1.2, 30))
+        if spell.kind == "echo":
+            self.echo(amount)
+        else:
+            self.release(spell, amount, crit)
+            self.last_release = (spell, amount)
+        self.hexed.discard(key)
+        self.roll_text(key)
 
+    def echo(self, amount):
+        """Echo: the last spell sounds again, weaker, and costs nothing."""
+        px, py = self.player_center()
+        if not self.last_release:
+            self.floaters.append(FloatingText("Nothing to echo", (px, py - 40), GRAY, 26))
+            return
+        spell, last = self.last_release
+        share = echo_fraction(amount)
+        self.floaters.append(FloatingText(f"Echo: {spell.name} {share * 100:.0f}%",
+                                          (px + 40, py - 130), (200, 180, 255), 26))
+        self.release(spell, last * share, False)
+
+    def release(self, spell, amount, crit):
+        """What a spell does once it leaves the book: bolts at foes, or a
+        ring of light around the boy for the spells cast on himself."""
+        run = self.run
+        kind = spell.kind
+        color = ELEMENT_COLORS[spell.element]
+        px, py = self.player_center()
+        burst(self.particles, (px + 20, py - 20), color, 18, speed=(40, 180))
         start = (px + 22, py - 22)
         release = 0.16                 # the bolt waits for the circle to open
-        if kind in ("damage", "drain", "dot", "execute"):
+        if kind in TARGET_KINDS:
             target = self.current_target()
             if target:
                 self.projectiles.append(Projectile(
                     start, target, color,
                     lambda e, s=spell, a=amount, c=crit: self.hit(e, s, a, c),
                     size=8 + int(spell.letters / 3), delay=release))
-        elif kind in ("aoe", "slow"):
+        elif kind in ALL_FOES_KINDS:
             for i, e in enumerate(self.alive()):
                 self.projectiles.append(Projectile(
                     start, e, color,
@@ -333,7 +369,8 @@ class CombatScene:
         else:
             # spells cast on himself: a ring of light closes around him
             self.effects.append(Ring((px, py), color, radius=90, life=0.5))
-            self.game.sound.play({"shield": "shield", "pact": "pact"}.get(kind, "heal"))
+            self.game.sound.play({"shield": "shield", "pact": "pact",
+                                  "mirror": "shield"}.get(kind, "heal"))
         if kind in ("sanity", "regen"):
             # every healing spell in one fight is weaker than the last
             amount *= SOOTHE_FADE ** self.soothes
@@ -343,8 +380,7 @@ class CombatScene:
             self.floaters.append(FloatingText(f"+{amount:.0f} sanity", (px, py - 40), SANITY_COL, 30))
             for hexed in list(self.hexed):          # Clarity also lifts every hex
                 self.hexed.discard(hexed)
-                if hexed != key:
-                    self.roll_text(hexed)
+                self.roll_text(hexed)
         elif kind == "regen":
             self.regen = [amount / 6, 6.0]
             self.floaters.append(FloatingText(f"+{amount:.0f} sanity over 6 s", (px, py - 40),
@@ -356,11 +392,9 @@ class CombatScene:
         elif kind == "shield":
             run.add_shield(amount)
             self.floaters.append(FloatingText(f"+{amount:.0f} shield", (px, py - 40), SHIELD_COL, 30))
-        if cost:
-            self.floaters.append(FloatingText(f"-{cost:.0f} sanity", (px - 30, py + 10),
-                                              SANITY_COL, 22, 1.2, 30))
-        self.hexed.discard(key)
-        self.roll_text(key)
+        elif kind == "mirror":
+            self.mirror = max(self.mirror, amount)
+            self.floaters.append(FloatingText("Mirror raised", (px, py - 40), (200, 230, 255), 30))
 
     def hit(self, enemy, spell, amount, crit):
         if enemy.dead:
@@ -370,7 +404,7 @@ class CombatScene:
             enemy = alive[0]
         color = ELEMENT_COLORS[spell.element]
         cx, cy = enemy.center
-        if spell.kind == "dot":
+        if spell.kind in ("dot", "plague"):
             enemy.dots.append([amount / 6, 6, 1.0])
             self.floaters.append(FloatingText("Rotting", (cx, cy - 40), color, 28))
         else:
@@ -394,6 +428,16 @@ class CombatScene:
                 enemy.timer += 4.0
                 enemy.timer_max = max(enemy.timer_max, enemy.timer)
                 self.floaters.append(FloatingText("Delayed", (cx, cy - 60), color, 24))
+            if spell.kind == "weaken" and not enemy.dead:
+                floor = enemy.base_dmg * WEAKEN_FLOOR
+                enemy.dmg = max(floor, enemy.dmg * WEAKEN)
+                self.floaters.append(FloatingText("Weakened", (cx, cy - 60), color, 24))
+            if spell.kind == "interrupt" and not enemy.dead:
+                # its attack bar is knocked back to empty, and a feint is broken off
+                enemy.feinting = 0.0
+                enemy.windup = False
+                enemy.reset_timer(self.rng)
+                self.floaters.append(FloatingText("Staggered", (cx, cy - 60), color, 24))
         burst(self.particles, (cx, cy), color, 30 if crit else 16)
         self.effects.append(Ring((cx, cy), color, radius=90 if crit else 60))
         self.game.sound.play("hit")
@@ -422,14 +466,15 @@ class CombatScene:
             hp_fraction = min(hp_fraction, 0.6)   # never the short words
         heavy = enemy.next_is_heavy()
         enemy.attacks += 1
+        flurry = enemy.chain > 0
         if heavy:
             # a heavy blow asks for a word one step harder than your health would
             hp_fraction = max(0.21, hp_fraction - 0.3) if hp_fraction > 0.21 else hp_fraction
-        word, limit = defense_prompt(hp_fraction, self.rng)
+        word, limit = defense_prompt(hp_fraction, self.rng, self.level["defend"])
         if self.run.has("scarf"):
             limit += 0.7
         self.defense = dict(enemy=enemy, session=TypingSession(word, 0.0),
-                            limit=limit, elapsed=0.0, heavy=heavy,
+                            limit=limit, elapsed=0.0, heavy=heavy, flurry=flurry,
                             damage=enemy.dmg * (HEAVY_DAMAGE if heavy else 1.0))
         enemy.windup = True      # it rears up while you type
         self.game.sound.play("heavy" if heavy else "warn")
@@ -445,9 +490,29 @@ class CombatScene:
         d = self.defense
         self.defense = None
         enemy = d["enemy"]
+        self.land_blow(d, enemy, finished)
+        if not enemy.dead and enemy.after_blow(self.rng):
+            # a flurry: it comes again almost at once
+            cx, cy = enemy.center
+            self.floaters.append(FloatingText("Again!", (cx, cy - 70), (255, 150, 120), 30))
+
+    def land_blow(self, d, enemy, finished):
+        """How one blow ends: dodged, deflected, mirrored, grazed or taken."""
         session = d["session"]
         enemy.strike()
         px, py = self.player_center()
+        if not finished and self.mirror > 0:
+            # Mirror Veil: the blow that would have landed turns back on its maker
+            reflect = d["damage"] + self.mirror
+            self.mirror = 0.0
+            enemy.take(reflect)
+            self.floaters.append(FloatingText("Mirrored!", (px + 30, py - 70), (200, 230, 255), 40))
+            self.floaters.append(FloatingText(f"{reflect:.0f}", (enemy.center[0], enemy.center[1] - 30),
+                                              (200, 230, 255), 30))
+            self.effects.append(Ring((px, py), (200, 230, 255), radius=110, life=0.5))
+            self.game.sound.play("deflect")
+            self.check_death(enemy)
+            return
         if finished:
             used = d["elapsed"] / d["limit"]
             if session.accuracy() >= DEFLECT_ACCURACY and used <= DEFLECT_TIME_FRACTION:
@@ -584,9 +649,13 @@ class CombatScene:
             for e in self.alive():
                 if e.trait == "stare":
                     self.run.change_sanity(-(0.3 if e.boss else 0.4) * dt)
-                e.timer -= dt
-                if e.timer <= 0:
-                    e.reset_timer(self.rng)
+                what = e.tick(dt, self.rng)
+                if what == "feint":
+                    # it rears up ... and holds back. The real blow comes soon.
+                    cx, cy = e.center
+                    self.floaters.append(FloatingText("Feint", (cx, cy - 70), (255, 200, 150), 26))
+                    self.game.sound.play("warn")
+                elif what == "attack":
                     allies = [o for o in self.alive() if o is not e]
                     if e.trait == "rally" and self.rng.random() < (0.6 if allies else 0.3):
                         self.toll(e, allies)
@@ -594,7 +663,7 @@ class CombatScene:
                         self.defense_queue.append(e)
                 if e.boss and not e.raged and e.hp < e.max_hp / 2:
                     e.raged = True
-                    e.timer = min(e.timer, 2.0)
+                    e.set_timer(min(e.timer, 2.0))
                     self.run.change_sanity(-6)
                     self.say(e.rage_text + "  (-6 sanity)", 3.0)
                     self.game.add_shake(0.6, 10)
@@ -717,9 +786,13 @@ class CombatScene:
         if focus:
             ui.draw_text(surface, ui.font(20), f"+{focus * FOCUS_BONUS * 100:.0f}%", GOLD,
                          topleft=(142, 66))
+        x = 190
         if self.empower:
-            ui.draw_text(surface, ui.font(20), f"Pact: next spell +{self.empower * 100:.0f}%",
-                         (190, 120, 255), topleft=(190, 66))
+            r = ui.draw_text(surface, ui.font(20), f"Pact: next spell +{self.empower * 100:.0f}%",
+                             (190, 120, 255), topleft=(x, 66))
+            x = r.right + 14
+        if self.mirror:
+            ui.draw_text(surface, ui.font(20), "Mirror raised", (200, 230, 255), topleft=(x, 66))
 
     def draw_defense(self, surface):
         d = self.defense
@@ -731,6 +804,8 @@ class CombatScene:
         if d["heavy"]:
             pygame.draw.rect(surface, edge, (cx - 280, y0, 560, 118), 3)
             title = "Heavy blow!  " + d["enemy"].attack_text
+        elif d["flurry"]:
+            title = "Again!  " + d["enemy"].attack_text + "  Defend:"
         else:
             title = d["enemy"].attack_text + "  Defend:"
         title = ui.fit(title, ui.font(24), 540)
@@ -752,7 +827,7 @@ class CombatScene:
         run = self.run
         ui.panel(surface, (0, PANEL_Y, WIDTH, HEIGHT - PANEL_Y), 225)
         tier = sanity_tier(run.sanity)
-        jitter = [0, 0.5, 1.4, 2.4][tier]
+        jitter = [0, 0.8, 2.2][tier]
         col_w = WIDTH // 2
         small = ui.font(20)
         for i, owned in enumerate(run.grimoire):

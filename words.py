@@ -1,40 +1,41 @@
 """Word corruption and defense words (pure Python, no pygame).
 
-High sanity -> the incantation is shown spelled correctly.
-Lower sanity -> some letters are replaced, and you must type what you SEE.
-Extremely low sanity -> the incantation becomes garbled nonsense.
+Lucid (71-100)   -> the incantation is shown spelled correctly.
+Uneasy (31-70)   -> some letters are replaced, and you must type what you SEE.
+Fraying (0-30)   -> the incantation becomes garbled nonsense.
 """
 import random
 import string
 
-from settings import (SANITY_LUCID, SANITY_FRAYING, SANITY_MAD, DEFEND_REACTION,
+from settings import (SANITY_LUCID, SANITY_FRAYING, UNEASY_REPLACE, DEFEND_REACTION,
                       DEFEND_SPEED)
 
 LETTERS = string.ascii_lowercase
 
-TIER_NAMES = ["Lucid", "Uneasy", "Fraying", "Mad"]
+TIER_NAMES = ["Lucid", "Uneasy", "Fraying"]
+LUCID, UNEASY, FRAYING = 0, 1, 2
 
 
 def sanity_tier(sanity):
-    """0 = lucid, 1 = uneasy, 2 = fraying, 3 = mad."""
-    if sanity >= SANITY_LUCID:
-        return 0
-    if sanity >= SANITY_FRAYING:
-        return 1
-    if sanity >= SANITY_MAD:
-        return 2
-    return 3
+    """0 = lucid (71-100), 1 = uneasy (31-70), 2 = fraying (0-30)."""
+    if sanity > SANITY_LUCID:
+        return LUCID
+    if sanity > SANITY_FRAYING:
+        return UNEASY
+    return FRAYING
 
 
 def replace_fraction(sanity):
     """Fraction of letters that get replaced at a given sanity."""
-    if sanity >= SANITY_LUCID:
+    tier = sanity_tier(sanity)
+    if tier == LUCID:
         return 0.0
-    if sanity < SANITY_MAD:
+    if tier == FRAYING:
         return 1.0
-    # 70 -> 10%, 15 -> 55%, straight line in between
-    t = (SANITY_LUCID - sanity) / (SANITY_LUCID - SANITY_MAD)
-    return 0.10 + 0.45 * t
+    # 70 -> 15%, 31 -> 50%, straight line in between
+    low, high = UNEASY_REPLACE
+    t = (SANITY_LUCID - sanity) / (SANITY_LUCID - SANITY_FRAYING - 1)
+    return low + (high - low) * max(0.0, min(1.0, t))
 
 
 def corrupt(text, sanity, rng=random):
@@ -77,11 +78,12 @@ HARD_WORDS = ["hold fast my soul", "not today", "break the fang",
               "counterspell"]
 
 
-def defense_prompt(hp_fraction, rng=random):
+def defense_prompt(hp_fraction, rng=random, time_scale=1.0):
     """Pick a (word, time_limit) pair. Lower health (sanity) = harder prompt.
 
     Longer words get more time, but the typing speed asked of you climbs as
-    sanity drops (see DEFEND_SPEED in settings.py).
+    sanity drops (see DEFEND_SPEED in settings.py). time_scale stretches the
+    time allowed (the difficulty level sets it).
     """
     if hp_fraction > 0.75:
         word, step = rng.choice(EASY_WORDS), 0
@@ -92,4 +94,4 @@ def defense_prompt(hp_fraction, rng=random):
         if hp_fraction <= 0.2:
             # near death: the words start to slip
             word = corrupt(word, 60, rng)
-    return word, DEFEND_REACTION + len(word) / DEFEND_SPEED[step]
+    return word, (DEFEND_REACTION + len(word) / DEFEND_SPEED[step]) * time_scale

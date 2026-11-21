@@ -5,7 +5,7 @@ The same seed always builds the same woods, so players can share seeds.
 import random
 
 from settings import GROUND_Y
-from bestiary import ACTS
+from bestiary import act_info
 
 
 def make_rng(seed, act, salt=""):
@@ -14,8 +14,9 @@ def make_rng(seed, act, salt=""):
 
 def generate_act(seed, act):
     rng = make_rng(seed, act, "map")
-    info = ACTS[act]
-    length = 3600 + 500 * act
+    info = act_info(act)
+    # more creatures roam each act, so the woods grow longer to hold them
+    length = 3600 + 650 * min(act, 6)
 
     # One-way platforms floating above the ground.
     platforms = []
@@ -39,15 +40,15 @@ def generate_act(seed, act):
     for i in range(count):
         ex = int(lo + step * i + rng.uniform(0.15, 0.85) * step)
         # act 1: one or two creatures; later acts: two or three
-        size = rng.randint(1, 2) if act == 1 else rng.randint(2, 3)
+        size = rng.randint(*info["group"])
         if i == 0:
-            size = 1  # a gentle first fight
+            size = 1 if act == 1 else 2  # a gentler first fight
         kinds = [rng.choice(info["pool"]) for _ in range(size)]
         encounters.append(dict(x=ex, enemies=kinds))
 
     # Shrines: restore health and sanity once each. Often up on a platform.
     shrines = []
-    for i in range(1 + (act >= 2)):
+    for i in range(1 + (act >= 2) + (act >= 3)):
         if platforms and rng.random() < 0.6:
             px, py, pw, _ = rng.choice(platforms)
             shrines.append((px + pw // 2, py))
@@ -57,14 +58,14 @@ def generate_act(seed, act):
     # Lore stones with short texts.
     lore = []
     for i in range(2):
-        lore.append((rng.randint(500, length - 800), rng.choice(LORE[act])))
+        lore.append((rng.randint(500, length - 800), rng.choice(LORE[info['look']])))
 
     # Brambles: thorn patches on the ground. Jump over them or bleed.
     blocked = ([e["x"] for e in encounters] + [x for x, _ in lore]
                + [x for x, y in shrines if y == GROUND_Y])
     brambles = []
     tries = 0
-    while len(brambles) < 3 + act and tries < 80:
+    while len(brambles) < 3 + min(act, 6) and tries < 80:
         tries += 1
         x = rng.randint(500, length - 600)
         if any(abs(x - b) < 160 for b in blocked):
