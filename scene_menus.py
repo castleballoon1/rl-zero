@@ -10,6 +10,7 @@ from bestiary import ACTS, ENEMIES, TRAITS, act_info, FINAL_ACT
 from entities import Layer, Projectile, Ring, RuneCircle, burst
 from settings import (WIDTH, HEIGHT, WHITE, GRAY, GOLD, BONE, SANITY_COL, BLOOD, GROUND_Y,
                       MISS_COL, DIFFICULTIES, DIFFICULTY)
+from lore import LORE, LORE_TRUTH_BELOW
 from relics import RELICS
 from settings import ELEMENT_COLORS, GREEN
 from spells import SPELLS, SPELL_LIST, effect_text, cost_text
@@ -280,7 +281,7 @@ class TitleScene:
                 pygame.draw.polygon(surface, GOLD, [(box.x + 10, y + 6), (box.x + 10, y + 20),
                                                     (box.x + 19, y + 13)])
         if self.miss > 0:
-            pygame.draw.rect(surface, MISS_COL, box, 3)
+            pygame.draw.rect(surface, MISS_COL, box.inflate(-22, -18), 3)
         ui.draw_text(surface, ui.font(20), f"Volume {self.game.sound.volume * 10}%  (Left/Right)",
                      GRAY, center=(box.centerx, box.bottom - 14))
         save = self.game.save
@@ -364,7 +365,10 @@ class CodexScene:
     music = "woods"
     pausable = False
     show_sanity_fx = False
-    PAGES = ["Spells", "More spells", "Relics & Foes"]
+    LORE_PER_PAGE = 3
+    PAGES = (["Spells", "More spells", "Relics & Foes"]
+             + [f"The Grimoire's Pages {'I' * (n + 1)}"
+                for n in range((len(LORE) + LORE_PER_PAGE - 1) // LORE_PER_PAGE)])
     PER_PAGE = 13
 
     def __init__(self, game):
@@ -394,8 +398,10 @@ class CodexScene:
                      center=(WIDTH // 2, 42))
         if self.page < 2:
             self.draw_spells(surface, self.page)
-        else:
+        elif self.page == 2:
             self.draw_lore(surface)
+        else:
+            self.draw_pages(surface, self.page - 3)
         ui.draw_text(surface, ui.font(20), "Left/Right: turn the page   Esc: back", GRAY,
                      center=(WIDTH // 2, HEIGHT - 30))
 
@@ -422,6 +428,43 @@ class CodexScene:
                 ui.draw_text(surface, small, ui.fit("Sealed: " + spell.unlock, small, 700),
                              GOLD, topleft=(200, y))
             y += 38
+
+    def draw_pages(self, surface, part):
+        """The boss pages found so far: what the grimoire says, and what lies beneath."""
+        save = self.game.save
+        small = ui.font(20)
+        width = WIDTH - 140
+        y = 72
+        first = part * self.LORE_PER_PAGE
+        for index in range(first, min(len(LORE), first + self.LORE_PER_PAGE)):
+            name, said, beneath = LORE[index]
+            where = (f"the boss of act {index + 1}" if index < FINAL_ACT
+                     else f"the boss of the endless woods, act {index + 1}")
+            if index not in save.lore_read:
+                ui.draw_text(surface, ui.font(24), "? ? ?", GRAY, topleft=(56, y))
+                ui.draw_text(surface, small, f"Not yet found. Dropped by {where}.", GOLD,
+                             topleft=(130, y + 6))
+                y += 52
+                continue
+            ui.draw_text(surface, ui.font(24), name, GOLD, topleft=(56, y))
+            y += 26
+            for line in ui.wrap(said, small, width):
+                ui.draw_text(surface, small, line, WHITE, topleft=(70, y))
+                y += 17
+            y += 4
+            if index in save.lore_truth:
+                for line in ui.wrap(beneath, small, width):
+                    ui.draw_text(surface, small, line, (230, 90, 100), topleft=(70, y))
+                    y += 17
+            else:
+                ui.draw_text(surface, ui.font(18),
+                             f"Something is written beneath. Read this page below "
+                             f"{LORE_TRUTH_BELOW} sanity to see it.", (150, 146, 164),
+                             topleft=(70, y))
+                y += 17
+            y += 16
+        ui.draw_text(surface, ui.font(20), f"Pages found: {len(save.lore_read)}/{len(LORE)}",
+                     GREEN, center=(WIDTH // 2, HEIGHT - 60))
 
     def draw_lore(self, surface):
         small = ui.font(20)
@@ -513,8 +556,7 @@ class NameScene:
             ui.draw_text(surface, ui.font(26), label, GOLD if active else GRAY,
                          center=(WIDTH // 2, y))
             box = pygame.Rect(WIDTH // 2 - 200, y + 16, 400, 44)
-            pygame.draw.rect(surface, (20, 18, 28), box)
-            pygame.draw.rect(surface, GOLD if active else GRAY, box, 2)
+            ui.panel(surface, box.inflate(16, 6), 245, border=GOLD if active else None)
             if key == "difficulty":
                 level = DIFFICULTIES[self.level]
                 text = f"<  {level['name']}  >" if active else level["name"]
@@ -590,7 +632,7 @@ class DawnScene:
         for i, (title, detail) in enumerate(rows):
             box = pygame.Rect(WIDTH // 2 - 260, 240 + i * 90, 520, 76)
             sel = i == self.selected
-            ui.panel(surface, box, 230 if sel else 150, border=GOLD if sel else (70, 64, 80))
+            ui.panel(surface, box, 230 if sel else 150, border=GOLD if sel else None)
             ui.draw_text(surface, ui.font(32), f"[{i + 1}] {title}", GOLD if sel else WHITE,
                          topleft=(box.x + 14, box.y + 8))
             for k, line in enumerate(ui.wrap(detail, ui.font(19), box.width - 28)):
@@ -603,21 +645,32 @@ class DawnScene:
 class DeathScene:
     """His mind is gone.
 
-    On a black screen, alone in the middle, the boy's eye burns to full red
-    and then drains to black. Then the end screen follows.
+    On a black screen, alone in the middle, the boy's eye burns red, goes
+    black, and he comes apart into purple wisps. The painted frames blend
+    into one another (no hard cuts), wisps drift up off him, and at the end
+    what is left of him fades into the dark. Then the end screen follows.
     """
     music = "defeat"         # the sombre stinger; it plays on into the end screen
     pausable = False
     show_sanity_fx = False
     REDDEN = (0.5, 1.8)      # between these seconds the eye climbs to full red
     BLACKEN = (2.3, 3.4)     # ... and between these it goes black
-    LENGTH = 5.6
+    # when each painted frame is fully shown: red eyes, redder, black eyes (with
+    # the low boom), the wisps rise, the colour drains, a shadow, fading, gone
+    ARRIVE = [0.0, 1.2, 2.3, 3.0, 3.6, 4.2, 4.8, 5.4]
+    BLEND = 0.5              # each frame melts into the next over this long
+    FADE_OUT = (5.7, 6.6)    # what is left of him sinks into the dark
+    WISPS_FROM = 2.6         # wisps start to lift off him
+    LENGTH = 7.0
 
     def __init__(self, game):
         self.game = game
         self.time = 0.0
         self.leaving = False
         self.gone_black = False
+        self.wisps = []          # [x, y, vx, vy, life, max_life, size]
+        self.wisp_timer = 0.0
+        self.rng = random.Random()
         # the mad look, in every eye colour from brown to red to black
         self.frames = art.hero_frames(art.DEATH_TALL)["looks"][2]
         self.unravel_frames = art.unravel_frames(art.DEATH_TALL)
@@ -643,25 +696,83 @@ class DeathScene:
         if event.type == pygame.KEYDOWN and self.time > 1.0:
             self.leave()             # any key skips ahead
 
+    def center(self):
+        """Where he stands: the middle of the screen, rising a little as he fades."""
+        rise = 14 * self.smooth(self.WISPS_FROM, self.FADE_OUT[1])
+        return WIDTH / 2, HEIGHT / 2 - 10 - rise
+
+    def smooth(self, start, end):
+        """0 before start, 1 after end, eased in and out between."""
+        k = max(0.0, min(1.0, (self.time - start) / (end - start)))
+        return k * k * (3 - 2 * k)
+
     def update(self, dt):
         self.time += dt
         if self.time >= self.LENGTH:
             self.leave()
+        # wisps peel off him and drift up, swaying, until he is gone
+        if self.unravel_frames and self.WISPS_FROM < self.time < self.FADE_OUT[1]:
+            self.wisp_timer += dt * (10 + 22 * self.smooth(self.WISPS_FROM, 4.5))
+            cx, cy = self.center()
+            while self.wisp_timer >= 1:
+                self.wisp_timer -= 1
+                life = self.rng.uniform(1.2, 2.4)
+                self.wisps.append([cx + self.rng.gauss(0, 55), cy + self.rng.uniform(-150, 170),
+                                   self.rng.uniform(-12, 12), self.rng.uniform(-70, -30),
+                                   life, life, self.rng.choice((8, 10, 14))])
+        for w in self.wisps:
+            w[2] += math.sin(self.time * 2.3 + w[6]) * 18 * dt     # sway
+            w[0] += w[2] * dt
+            w[1] += w[3] * dt
+            w[4] -= dt
+        self.wisps = [w for w in self.wisps if w[4] > 0]
+
+    def blended_boy(self):
+        """The painted frame for this moment, melted into the next one."""
+        frames = self.unravel_frames
+        t = self.time
+        i = 0
+        while i + 1 < len(frames) and t >= self.ARRIVE[i + 1]:
+            i += 1
+        boy = frames[i].copy()
+        if i + 1 < len(frames):
+            k = self.smooth(self.ARRIVE[i + 1] - self.BLEND, self.ARRIVE[i + 1])
+            if k > 0:
+                # the frames are painted onto black, so a weighted sum of the
+                # two is an exact blend: a*(1-k) + b*k
+                keep = round(255 * (1 - k))
+                boy.fill((keep, keep, keep), special_flags=pygame.BLEND_RGB_MULT)
+                nxt = frames[i + 1].copy()
+                add = round(255 * k)
+                nxt.fill((add, add, add), special_flags=pygame.BLEND_RGB_MULT)
+                boy.blit(nxt, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+        fade = 1 - self.smooth(*self.FADE_OUT)
+        if fade < 1:
+            left = round(255 * fade)
+            boy.fill((left, left, left), special_flags=pygame.BLEND_RGB_MULT)
+        return boy
 
     def draw_world(self, surface):
         surface.fill((0, 0, 0))
-        shake = 0
-        if self.REDDEN[0] < self.time < self.BLACKEN[0]:
-            shake = round(math.sin(self.time * 70) * 2)     # he trembles as it takes him
-        if self.unravel_frames:
-            self.eye()  # keep the existing blackening sound timing
-            index = min(len(self.unravel_frames) - 1,
-                        int(min(1.0, self.time / self.LENGTH) *
-                            len(self.unravel_frames)))
-            boy = self.unravel_frames[index]
-        else:
+        # he trembles as it takes him: strongest as the eye goes black, then still
+        tremble = math.sin(math.pi * self.smooth(self.REDDEN[0], self.BLACKEN[1]))
+        shake = round(math.sin(self.time * 31) * 2 * tremble)
+        if not self.unravel_frames:
             boy = self.frames[self.eye()]["right"]["idle"]
-        surface.blit(boy, boy.get_rect(center=(WIDTH // 2 + shake, HEIGHT // 2 - 10)))
+            surface.blit(boy, boy.get_rect(center=(WIDTH // 2 + shake, HEIGHT // 2 - 10)))
+            return
+        self.eye()  # keeps the low boom on time as his eyes go black
+        cx, cy = self.center()
+        boy = self.blended_boy()
+        surface.blit(boy, boy.get_rect(center=(round(cx) + shake, round(cy))),
+                     special_flags=pygame.BLEND_RGB_ADD)
+        for x, y, _, _, life, max_life, size in self.wisps:
+            # each wisp swells in, then thins out
+            k = life / max_life
+            strength = int(150 * math.sin(math.pi * k))
+            if strength > 4:
+                g = art.glow(size, (170, 100, 235), strength // 10 * 10)
+                surface.blit(g, g.get_rect(center=(round(x), round(y))))
 
     def draw_ui(self, surface):
         after = self.time - self.BLACKEN[1] - 0.3

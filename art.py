@@ -152,6 +152,54 @@ def shrine_surface(used):
     return surf
 
 
+# The painted shrine: a 3 x 2 atlas of 512 px cells, the shrine in the same
+# spot in each. 0 is waiting (its rune faintly lit), 1-4 wake it as he prays
+# (motes, a swirl, a ring of light), 5 is spent (the rune dark).
+SHRINE_TALL = 110          # how tall the shrine stands in the woods
+LORE_TALL = 78             # ... and the lore tablets
+SHRINE_CELL = 512
+SHRINE_BOX = (55, 11, 403, 469)     # x, y, w, h of the shrine inside every cell
+SHRINE_WAITING, SHRINE_SPENT = 0, 5
+SHRINE_PRAYING = [1, 2, 3, 4]
+
+
+def shrine_frames(height):
+    """The six painted shrine frames, all scaled alike, or None if missing."""
+    key = ("shrine_frames", height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Teal Rune Shrine Animation Atlas-2.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except (pygame.error, FileNotFoundError):
+        return None
+    x, y, w, h = SHRINE_BOX
+    frames = []
+    for i in range(6):
+        row, col = divmod(i, 3)
+        cell = pygame.Rect(col * SHRINE_CELL + x, row * SHRINE_CELL + y, w, h)
+        frames.append(_solid(sheet.subsurface(cell).copy(), 20))
+    frames = sprites.scale_frames(frames, height / h, smooth=True)
+    _cache[key] = frames
+    return frames
+
+
+def lore_tablet(height):
+    """The glowing runic tablet the lore stones are drawn with, or None."""
+    key = ("lore_tablet", height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Glowing Runic Stone Tablet.png")
+    try:
+        image = _solid(pygame.image.load(path).convert_alpha(), 20)
+    except (pygame.error, FileNotFoundError):
+        return None
+    image = image.subsurface(image.get_bounding_rect()).copy()
+    image = sprites.scale_frames([image], height / image.get_height(), smooth=True)[0]
+    _cache[key] = image
+    return image
+
+
 def lore_surface():
     surf = pygame.Surface((26, 34), pygame.SRCALPHA)
     pygame.draw.rect(surf, (60, 58, 64), (2, 6, 22, 28), border_radius=6)
@@ -682,8 +730,25 @@ def hero_frames(height):
     return _cache[key]
 
 
+# The death sheet is a 3 x 3 grid with 8 pictures (the last cell is empty).
+# The artist's columns are a little narrower than a third of the sheet, so the
+# boy drifts left inside each third; these are his centres, measured from the
+# sheet, so every picture can be cut around him and he stays on one spot.
+UNRAVEL_CENTERS = [140, 384, 626]   # x of the boy in columns 0, 1, 2
+UNRAVEL_ROW = 259                   # height of one row
+UNRAVEL_HALF = 120                  # half the width cut around him
+UNRAVEL_COUNT = 8
+
+
 def unravel_frames(height):
-    """Nine painted frames of the boy dissolving into purple wisps."""
+    """Eight painted frames of the boy dissolving into purple wisps.
+
+    Every frame is cut on the same box around him and scaled by one factor, so
+    he neither moves nor changes size between them. Each is returned painted
+    onto black (an opaque picture whose colours are already multiplied by their
+    transparency), which lets the death scene blend one frame smoothly into
+    the next by adding them together.
+    """
     key = ("unravel_frames", height)
     if key in _cache:
         return _cache[key]
@@ -691,47 +756,72 @@ def unravel_frames(height):
                         "Fading Boy with Purple Wisps.png")
     try:
         sheet = pygame.image.load(path).convert_alpha()
-    except pygame.error:
+    except (pygame.error, FileNotFoundError):
         return None
-    frame_w = sheet.get_width() // 3
-    frame_h = sheet.get_height() // 3
+    cut = []
+    for i in range(UNRAVEL_COUNT):
+        row, col = divmod(i, 3)
+        box = pygame.Rect(UNRAVEL_CENTERS[col] - UNRAVEL_HALF, row * UNRAVEL_ROW,
+                          UNRAVEL_HALF * 2, UNRAVEL_ROW).clip(sheet.get_rect())
+        cut.append(_solid(sheet.subsurface(box).copy()))
+    boy = cut[0].get_bounding_rect(min_alpha=60).height or UNRAVEL_ROW
+    cut = sprites.scale_frames(cut, height / boy, smooth=True)
     frames = []
-    for row in range(3):
-        for col in range(3):
-            frame = sheet.subsurface((col * frame_w, row * frame_h,
-                                      frame_w, frame_h)).copy()
-            box = frame.get_bounding_rect()
-            if box.width and box.height:
-                frame = frame.subsurface(box).copy()
-            factor = height / frame.get_height()
-            frames.append(pygame.transform.smoothscale(
-                frame, (max(1, round(frame.get_width() * factor)), height)))
+    for frame in cut:
+        dark = pygame.Surface(frame.get_size())       # opaque black
+        dark.blit(frame, (0, 0))
+        frames.append(dark)
     _cache[key] = frames
     return frames
 
 
+# The opening atlas is a 3 x 3 grid, but the boy pokes over the grid lines
+# (his hair reaches into the row above), so each picture has its own box,
+# cut in the empty gaps between them: (x, y, w, h) in sheet pixels.
+OPENING_CELLS = [(0, 0, 255, 237), (255, 0, 265, 237), (520, 0, 248, 237),      # lie, push up, sit
+                 (0, 237, 256, 250), (256, 237, 259, 250), (515, 237, 253, 250),  # sit, kneel, crouch
+                 (0, 487, 243, 281), (243, 487, 267, 281), (510, 487, 258, 281)]  # stand, step, step
+OPENING_STAND = 6          # the standing picture: the one matched to the boy's usual size
+
+
+def _solid(frame, min_alpha=8):
+    """The frame with its faint background noise (alpha below min_alpha) removed."""
+    mask = pygame.mask.from_surface(frame, min_alpha)
+    return mask.to_surface(setsurface=frame, unsetcolor=(0, 0, 0, 0))
+
+
 def opening_boy_frames(height):
-    """Nine wake-to-walk frames from the painted opening cutscene atlas."""
+    """Nine wake-to-walk frames from the painted opening cutscene atlas.
+
+    All nine are scaled by ONE factor, chosen so that he stands exactly as tall
+    as the boy with the grimoire (hero_frames at the same height), so he does
+    not grow or shrink as he gets up, walks and takes the book. The standing
+    and walking frames (3-8) share one canvas with the feet at the bottom
+    centre, like the hero's own frames, so get_rect(midbottom=feet) puts every
+    one of them on the same spot.
+    """
     key = ("opening_boy_frames", height)
     if key in _cache:
         return _cache[key]
     path = os.path.join(ASSET_DIR, "Sprites", "Opening", "Wake to Walk.png")
     try:
         sheet = pygame.image.load(path).convert_alpha()
-    except pygame.error:
+    except (pygame.error, FileNotFoundError):
         return None
-    frame_w, frame_h = sheet.get_width() // 3, sheet.get_height() // 3
     frames = []
-    for row in range(3):
-        for col in range(3):
-            frame = sheet.subsurface((col * frame_w, row * frame_h,
-                                      frame_w, frame_h)).copy()
-            box = frame.get_bounding_rect()
-            if box.width and box.height:
-                frame = frame.subsurface(box).copy()
-            factor = height / frame.get_height()
-            frames.append(pygame.transform.smoothscale(
-                frame, (max(1, round(frame.get_width() * factor)), height)))
+    for cell in OPENING_CELLS:
+        frame = _solid(sheet.subsurface(cell).copy())
+        box = frame.get_bounding_rect()
+        if box.width and box.height:
+            frame = frame.subsurface(box).copy()
+        frames.append(frame)
+    # how tall the boy with the book really stands (his sheet has faint pixels
+    # above his hair, so measure the solid part of him)
+    hero_idle = hero_frames(height)["looks"][0][0]["right"]["idle"]
+    tall = hero_idle.get_bounding_rect(min_alpha=60).height or height
+    factor = tall / frames[OPENING_STAND].get_bounding_rect(min_alpha=60).height
+    frames = sprites.scale_frames(frames, factor, smooth=True)
+    frames[3:] = sprites.align_by_feet(frames[3:])
     _cache[key] = frames
     return frames
 
@@ -791,4 +881,8 @@ def preload(report):
     hero_frames(84)
     hero_frames(120)
     hero_bookless(120)       # the opening, before he finds the grimoire
+    opening_boy_frames(120)  # ... the painted wake-to-walk frames
+    unravel_frames(DEATH_TALL)   # the death scene, so it starts without a hitch
+    shrine_frames(SHRINE_TALL)   # the painted shrine and its prayer
+    lore_tablet(LORE_TALL)       # the runic tablets in the woods
     hero_frames(DEATH_TALL)

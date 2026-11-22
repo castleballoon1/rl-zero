@@ -800,9 +800,9 @@ class CombatScene:
         word = session.target
         cx, y0 = 660, 4
         edge = (255, 60, 200) if d["heavy"] else (200, 70, 70)
-        ui.panel(surface, (cx - 280, y0, 560, 118), 240, border=edge)
+        ui.panel(surface, (cx - 280, y0, 560, 118), 240, border=edge,
+                 border_width=3 if d["heavy"] else 1)
         if d["heavy"]:
-            pygame.draw.rect(surface, edge, (cx - 280, y0, 560, 118), 3)
             title = "Heavy blow!  " + d["enemy"].attack_text
         elif d["flurry"]:
             title = "Again!  " + d["enemy"].attack_text + "  Defend:"
@@ -825,7 +825,7 @@ class CombatScene:
 
     def draw_grimoire(self, surface):
         run = self.run
-        ui.panel(surface, (0, PANEL_Y, WIDTH, HEIGHT - PANEL_Y), 225)
+        ui.panel(surface, (-4, PANEL_Y - 5, WIDTH + 8, HEIGHT - PANEL_Y + 9), 225, scale=0.16)
         tier = sanity_tier(run.sanity)
         jitter = [0, 0.8, 2.2][tier]
         col_w = WIDTH // 2

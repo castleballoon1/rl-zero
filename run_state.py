@@ -9,6 +9,7 @@ import random
 
 from settings import (START_SANITY, MAX_SANITY, MAX_SHIELD,
                       GRIMOIRE_SIZE, SAVE_FILE, DIFFICULTY)
+from lore import LORE
 from spells import OwnedSpell, STARTER_SPELLS, SPELLS, default_unlocked
 
 
@@ -21,6 +22,8 @@ class SaveData:
         self.best_act = 0
         self.best_score = 0
         self.difficulty = "normal"     # the last one chosen, offered first next time
+        self.lore_read = []            # boss pages found (indices into lore.LORE)
+        self.lore_truth = []           # ... and the ones read low enough to see beneath
         self.load()
 
     def load(self):
@@ -38,6 +41,11 @@ class SaveData:
         self.best_score = int(data.get("best_score", 0))
         if data.get("difficulty") in DIFFICULTY:
             self.difficulty = data["difficulty"]
+        for name in ("lore_read", "lore_truth"):
+            found = getattr(self, name)
+            for i in data.get(name, []):
+                if isinstance(i, int) and 0 <= i < len(LORE) and i not in found:
+                    found.append(i)
 
     def save(self):
         try:
@@ -45,10 +53,24 @@ class SaveData:
                 json.dump(dict(unlocked=self.unlocked, runs=self.runs,
                                wins=self.wins, best_act=self.best_act,
                                best_score=self.best_score,
-                               difficulty=self.difficulty), f,
+                               difficulty=self.difficulty,
+                               lore_read=self.lore_read,
+                               lore_truth=self.lore_truth), f,
                           indent=2)
         except OSError:
             pass
+
+    def read_lore(self, index, truth):
+        """Remember a boss page (and whether what is beneath it was seen)."""
+        changed = False
+        if index not in self.lore_read:
+            self.lore_read.append(index)
+            changed = True
+        if truth and index not in self.lore_truth:
+            self.lore_truth.append(index)
+            changed = True
+        if changed:
+            self.save()
 
     def unlock(self, key):
         """Unlock a spell. Returns True if it was new."""
@@ -83,6 +105,7 @@ class RunState:
         self.best_hit = 0
         self.deflects = 0
         self.new_unlocks = []
+        self.crossed_out = []      # spells he struck from the grimoire to make room
 
     # --- helpers ---------------------------------------------------------
     def get(self, key):
@@ -115,6 +138,15 @@ class RunState:
             owned.empower(potency)
         elif self.has_room():
             self.grimoire.append(OwnedSpell(key, 1, potency))
+
+    def cross_out(self, old_key, new_key, potency):
+        """Strike a spell from a full grimoire and write a new one in its place."""
+        for i, owned in enumerate(self.grimoire):
+            if owned.key == old_key:
+                self.grimoire[i] = OwnedSpell(new_key, 1, potency)
+                self.crossed_out.append(old_key)
+                return True
+        return False
 
     def change_sanity(self, amount):
         """Gain sanity, or pay it. Paying can never kill: it stops at 1.

@@ -25,9 +25,11 @@
     "hymn",
     "bloodprice"
   ],
-  "runs": 56,
+  "runs": 61,
   "wins": 1,
   "best_act": 5,
   "best_score": 7236,
-  "difficulty": "story"
+  "difficulty": "story",
+  "lore_read": [],
+  "lore_truth": []
 }

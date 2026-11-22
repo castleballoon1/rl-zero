@@ -124,21 +124,20 @@ class CampScene:
         ui.draw_text(surface, ui.font(24), head, GRAY, center=(WIDTH // 2, 145))
         rows = self.rows()
         tall = len(rows) <= 5
-        row_h = 58 if tall else 40
+        row_h = 62 if tall else 44
         x, y = 500, 180
         for i, (title, detail, color) in enumerate(rows):
             box = pygame.Rect(x, y + i * row_h, 430, row_h - 6)
             sel = i == self.selected
-            ui.panel(surface, box, 230 if sel else 150,
-                     border=GOLD if sel else (70, 64, 80))
+            ui.panel(surface, box, 230 if sel else 150, border=GOLD if sel else None)
             ui.draw_text(surface, ui.font(26), f"[{i + 1}] {title}", color if sel else WHITE,
-                         topleft=(box.x + 10, box.y + 2))
+                         topleft=(box.x + 14, box.y + 6))
             if tall:
-                ui.draw_text(surface, ui.font(19), ui.fit(detail, ui.font(19), 410), GRAY,
-                             topleft=(box.x + 10, box.y + 32))
+                ui.draw_text(surface, ui.font(19), ui.fit(detail, ui.font(19), 400), GRAY,
+                             topleft=(box.x + 14, box.y + 35))
             else:
                 ui.draw_text(surface, ui.font(19), detail, GRAY,
-                             midright=(box.right - 10, box.centery))
+                             midright=(box.right - 14, box.centery))
         if self.run.relics:
             names = ", ".join(RELICS[k][0] for k in self.run.relics)
             ui.draw_text(surface, ui.font(20), ui.fit("Relics: " + names, ui.font(20), WIDTH - 40),

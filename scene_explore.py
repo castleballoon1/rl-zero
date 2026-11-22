@@ -16,6 +16,9 @@ GATE_FRAME_TIME = 0.16
 GATE_OPEN_HOLD = 0.3
 
 
+SHRINE_FRAME_TIME = 0.3   # seconds per picture as the shrine wakes
+
+
 class ExploreScene:
     music = "woods"
     pausable = True
@@ -47,10 +50,18 @@ class ExploreScene:
         for i, enc in enumerate(self.level["encounters"]):
             if i not in run.cleared:
                 self.enemies.add(MapEnemy(i, enc["x"], enc["enemies"]))
+        # the painted shrine (falls back to the drawn one if the picture is missing)
+        self.shrine_frames = art.shrine_frames(art.SHRINE_TALL)
+        sw, sh = self.shrine_frames[0].get_size() if self.shrine_frames else (40, 60)
         self.shrines = []
         for i, (x, y) in enumerate(self.level["shrines"]):
-            self.shrines.append((i, pygame.Rect(x - 20, y - 60, 40, 60)))
-        self.lore = [(pygame.Rect(x - 13, GROUND_Y - 34, 26, 34), text)
+            self.shrines.append((i, pygame.Rect(x - sw // 2, y - sh, sw, sh)))
+        self.praying = {}        # shrine index -> seconds since he knelt at it
+        self.lore_img = art.lore_tablet(art.LORE_TALL)
+        if self.lore_img is None:
+            self.lore_img = art.lore_surface()
+        lw, lh = self.lore_img.get_size()
+        self.lore = [(pygame.Rect(x - lw // 2, GROUND_Y - lh, lw, lh), text)
                      for x, text in self.level["lore"]]
         self.brambles = [(pygame.Rect(x - w // 2, GROUND_Y - 20, w, 20),
                           art.bramble_surface(w))
@@ -58,7 +69,6 @@ class ExploreScene:
         # each mote is [rect, taken]
         self.motes = [[pygame.Rect(x - 10, y - 10, 20, 20), False]
                       for x, y in self.level["motes"]]
-        self.lore_img = art.lore_surface()
         self.gate_frames = art.boss_gate_frames()
         self.gate_rect = self.gate_frames[0].get_rect(
             midbottom=(self.level["gate_x"], GROUND_Y))
@@ -101,7 +111,8 @@ class ExploreScene:
                 run.shrines_used.add(i)
                 run.change_sanity(SHRINE_SANITY)
                 self.game.sound.play("shrine")
-                burst(self.particles, rect.center, (130, 180, 255), 30)
+                self.praying[i] = 0.0           # the shrine wakes: its prayer animation
+                burst(self.particles, rect.center, (110, 240, 210), 30)
                 self.game.float_text(f"+{SHRINE_SANITY} sanity", (WIDTH // 2, 200), (150, 200, 255))
                 return
         for rect, text in self.lore:
@@ -122,6 +133,10 @@ class ExploreScene:
                 self.game.start_combat([boss_for(run.act, run.difficulty)], True, None)
             return
         self.banner = max(0.0, self.banner - dt)
+        for i in list(self.praying):
+            self.praying[i] += dt
+            if self.praying[i] >= SHRINE_FRAME_TIME * (len(art.SHRINE_PRAYING) + 1):
+                del self.praying[i]             # done: it settles, spent
         if self.reading:
             return
         keys = pygame.key.get_pressed()
@@ -218,10 +233,29 @@ class ExploreScene:
         run = self.game.run
         for i, rect in self.shrines:
             used = i in run.shrines_used
-            if not used:
-                g = art.glow(40, (110, 160, 255), 90 + int(30 * math.sin(self.time * 3)))
-                surface.blit(g, g.get_rect(center=(rect.centerx - cam, rect.centery)))
-            surface.blit(art.shrine_surface(used), (rect.x - cam, rect.y))
+            if not self.shrine_frames:
+                if not used:
+                    g = art.glow(40, (110, 160, 255), 90 + int(30 * math.sin(self.time * 3)))
+                    surface.blit(g, g.get_rect(center=(rect.centerx - cam, rect.centery)))
+                surface.blit(art.shrine_surface(used), (rect.x - cam, rect.y))
+                continue
+            rune = (rect.centerx - cam, rect.y + rect.height * 0.42)   # its glowing rune
+            if i in self.praying:
+                # waking: motes rise, the rune swirls, a ring of light spreads, then spent
+                step = int(self.praying[i] / SHRINE_FRAME_TIME)
+                frame = (art.SHRINE_PRAYING[step] if step < len(art.SHRINE_PRAYING)
+                         else art.SHRINE_SPENT)
+                bright = math.sin(math.pi * min(1.0, self.praying[i] /
+                                                (SHRINE_FRAME_TIME * len(art.SHRINE_PRAYING))))
+                g = art.glow(70, (90, 240, 200), int(60 + 120 * bright))
+                surface.blit(g, g.get_rect(center=rune))
+            elif used:
+                frame = art.SHRINE_SPENT
+            else:
+                frame = art.SHRINE_WAITING
+                g = art.glow(40, (90, 240, 200), 70 + int(30 * math.sin(self.time * 3)))
+                surface.blit(g, g.get_rect(center=rune))
+            surface.blit(self.shrine_frames[frame], (rect.x - cam, rect.y))
         for rect, _ in self.lore:
             surface.blit(self.lore_img, (rect.x - cam, rect.y))
         for rect, img in self.brambles:
@@ -299,7 +333,7 @@ class ExploreScene:
 
         if self.prompt:
             width = ui.font(28).size(self.prompt)[0] + 30
-            ui.panel(surface, (WIDTH // 2 - width // 2, HEIGHT - 62, width, 38), 230)
+            ui.panel(surface, (WIDTH // 2 - width // 2 - 6, HEIGHT - 66, width + 12, 46), 230)
             ui.draw_text(surface, ui.font(28), self.prompt, WHITE, center=(WIDTH // 2, HEIGHT - 43))
         else:
             ui.draw_text(surface, ui.font(20),
@@ -311,9 +345,13 @@ class ExploreScene:
             img.set_alpha(int(255 * a))
             surface.blit(img, img.get_rect(center=(WIDTH // 2, 170)))
         if self.reading:
-            ui.panel(surface, (WIDTH // 2 - 300, 150, 600, 150), 230)
-            lines = ui.wrap(self.reading, ui.font(30), 560)
+            # the words carved on a tablet get a stone tablet of their own
+            box = pygame.Rect(WIDTH // 2 - 300, 120, 600, 250)
+            ui.stone_panel(surface, box)
+            lines = ui.wrap(self.reading, ui.font(30), 480)
+            top = box.centery - 8 - (len(lines) - 1) * 16
             for i, line in enumerate(lines):
                 ui.draw_text(surface, ui.font(30), line, BONE,
-                             center=(WIDTH // 2, 195 + i * 32))
-            ui.draw_text(surface, ui.font(20), "(any key)", GRAY, center=(WIDTH // 2, 285))
+                             center=(WIDTH // 2, top + i * 32))
+            ui.draw_text(surface, ui.font(20), "(any key)", GRAY,
+                         center=(WIDTH // 2, box.bottom - 56))

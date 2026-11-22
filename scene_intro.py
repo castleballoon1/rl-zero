@@ -66,6 +66,13 @@ BOOK_X = 600           # where the grimoire glows in the roots
 SHADOW_STOP = 800      # how close the shadow creeps
 FIRST_WORD = "ignis"
 
+# He walks at one steady pace the whole scene, to the book and off the screen,
+# with one step rhythm, whether or not he is carrying the grimoire.
+WALK_SPEED = 115       # px / s
+WALK_FRAME = 0.16      # seconds per walking picture (stride, stand, stride, stand)
+WALK_TO = BOOK_X - 70  # where he stops to pick up the book
+WALK_OFF = WIDTH + 60  # where he is gone off the right edge
+
 # (beat, seconds, caption). A beat of None seconds waits for the player.
 BEATS = [
     ("dark", 1.8, "..."),
@@ -73,13 +80,13 @@ BEATS = [
     ("rise", 2.7, "He gets up, slowly. Nothing here is familiar."),
     ("look", 2.2, "The woods are very quiet."),
     ("glow", 1.8, "Something glows under the roots."),
-    ("walk", 2.2, ""),
+    ("walk", (WALK_TO - WAKE_X) / WALK_SPEED, ""),
     ("lift", 2.2, "A book. It is warm, though nothing else here is."),
     ("take", 1.4, "It opens on its own, as if it had been waiting for him."),
     ("shadow", 2.0, "Then something moves between the trees."),
     ("type", None, "One word is already written. Read it aloud: type it."),
     ("after", 2.8, "The shadow shrieks and is gone. The grimoire hums in his hands."),
-    ("go", 2.4, "Somewhere ahead, the trees part. He walks."),
+    ("go", (WALK_OFF - WALK_TO) / WALK_SPEED, "Somewhere ahead, the trees part. He walks."),
 ]
 
 
@@ -109,6 +116,7 @@ class IntroScene:
         self.x = float(WAKE_X)
         self.facing = "right"
         self.walk_anim = 0.0
+        self.last_step = -1
         self.book_x = float(BOOK_X)
         self.book_y = GROUND_Y - 14
         self.book_open = 0.0
@@ -232,15 +240,14 @@ class IntroScene:
                           speed=(20, 90), life=(0.3, 0.8), size=3)
         if name == "look":
             self.facing = "left" if 0.5 < t < 1.3 else "right"
-        elif name == "walk":
-            span = BOOK_X - 70 - WAKE_X
-            self.x = WAKE_X + span * min(1.0, t / BEATS[self.beat][1])
+        elif name in ("walk", "go"):
+            start, end = (WAKE_X, WALK_TO) if name == "walk" else (WALK_TO, WALK_OFF)
+            self.x = min(float(end), start + WALK_SPEED * t)
             self.walk_anim += dt
-        elif name == "go":
-            start = BOOK_X - 70
-            span = WIDTH + 100 - start
-            self.x = start + span * min(1.0, t / BEATS[self.beat][1])
-            self.walk_anim += dt
+            step = int(self.walk_anim / WALK_FRAME)
+            if step != self.last_step and step % 2 == 0:      # a foot comes down
+                self.game.sound.play("step")
+            self.last_step = step
         elif name == "lift":
             # it rises out of the roots, opening, then drifts into his hands
             k = min(1.0, t / 1.3)
@@ -307,11 +314,11 @@ class IntroScene:
             poses = art.hero_poses(self.hero, 100, 100, self.facing)
             name = self.name
             if name in ("walk", "go"):
-                img = poses["walk"][int(self.walk_anim / 0.14) % len(poses["walk"])]
-            elif self.cast_anim > 0 or name == "take":
+                img = poses["walk"][self.walk_step() % len(poses["walk"])]
+            elif self.cast_anim > 0:
                 img = poses["cast"]
             else:
-                img = poses["idle"]
+                img = poses["idle"]       # he stands just as he stood before he took it
             lift = int(math.sin((1 - self.cast_anim / 0.55) * math.pi) * 10) if self.cast_anim else 0
             return [(img, img.get_rect(midbottom=(round(self.x), GROUND_Y - lift)).center)]
 
@@ -323,8 +330,7 @@ class IntroScene:
             elif name == "rise":
                 index = min(5, 1 + int(t / 2.7 * 5))
             elif name == "walk" or name == "go":
-                step = int(t / 0.28) % 4
-                index = (7, 6, 8, 6)[step]
+                index = (7, 6, 8, 6)[self.walk_step() % 4]     # the same rhythm as with the book
             elif name == "look" and self.facing == "left":
                 index = 6
             elif name in ("take", "cast"):
@@ -347,13 +353,17 @@ class IntroScene:
             return [self.crouched(base, pose, tilt, crouch)]
         name = self.name
         if name == "walk":
-            img = poses["walk"][int(self.walk_anim / 0.14) % len(poses["walk"])]
+            img = poses["walk"][self.walk_step() % len(poses["walk"])]
         elif self.cast_anim > 0 or name == "take":
             img = poses["cast"]
         else:
             img = poses["idle"]
         lift = int(math.sin((1 - self.cast_anim / 0.55) * math.pi) * 10) if self.cast_anim else 0
         return [(img, img.get_rect(midbottom=(round(self.x), GROUND_Y - lift)).center)]
+
+    def walk_step(self):
+        """Which walking picture: one every WALK_FRAME seconds of walking."""
+        return int(self.walk_anim / WALK_FRAME)
 
     def split(self, img):
         """Cut a standing picture at the waist: (body, legs, hip point in each, thicknesses)."""

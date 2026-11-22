@@ -521,9 +521,9 @@ class CombatEnemy:
         top = body.top - 44
         col = (255, 220, 120) if targeted else (235, 230, 220)
         w = max(90, min(132, body.width))
-        plate_w = max(w, ui.font(22).size(self.name)[0]) + 14
-        plate = pygame.Rect(body.centerx - plate_w // 2, top - 21, plate_w, 62)
-        ui.panel(surface, plate, 150, border=(40, 34, 54))
+        plate_w = max(w, ui.font(22).size(self.name)[0]) + 24
+        plate = pygame.Rect(body.centerx - plate_w // 2, top - 23, plate_w, 66)
+        ui.panel(surface, plate, 150)
         ui.draw_text(surface, ui.font(22), self.name, col, midbottom=(body.centerx, top))
         ui.draw_bar(surface, (body.centerx - w // 2, top + 2, w, 8),
                     self.hp / self.max_hp, (200, 50, 60))
