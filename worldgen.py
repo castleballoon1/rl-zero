@@ -72,7 +72,7 @@ def generate_act(seed, act):
             continue
         if any(abs(x - bx) < 220 for bx, _ in brambles):
             continue
-        brambles.append((x, rng.choice([46, 60, 74])))
+        brambles.append((x, rng.choice([70, 90, 110])))   # widths that hurt (painted ~1.4x wider)
 
     # Motes of calm: small lights that restore a little sanity. Most sit on
     # platforms, a few hang in the air and need a jump.

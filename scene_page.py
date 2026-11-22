@@ -67,6 +67,17 @@ INK = (40, 30, 30)
 RED_INK = (120, 22, 26)
 CROSS_TIME = 0.7          # seconds the pen takes to strike a spell out
 TRUTH_SPEED = 45          # letters a second as the hidden writing shows through
+BURN_FRAME = 0.2          # seconds per picture as a burned page curls to ash
+BURN_HOLD = 0.45          # ... and the pause on the ash before moving on
+# how much of the page (from the top) is still unburnt in each burning picture;
+# the writing is cut off at that line, so it burns away with the paper
+BURN_LEFT = [1.0, 1.0, 0.85, 0.66, 0.38, 0.12, 0.0]
+
+# The painted page keeps its own shape (art.PAGE_BOX is 306 x 394). Its purple
+# corner brackets frame the writing: every word on the page stays inside this
+# box, given as shares of the page's width and height (left, top, right, bottom).
+PAGE_TEXT = (0.20, 0.155, 0.80, 0.865)
+SIDE_GAP = 12             # between the page and the panel beside it
 
 
 def on_page(*args, **where):
@@ -123,7 +134,8 @@ class PageScene:
         return None
 
     def handle_event(self, event):
-        if event.type != pygame.KEYDOWN or self.stage_time < 0.4 or self.crossing:
+        if (event.type != pygame.KEYDOWN or self.stage_time < 0.4 or self.crossing
+                or self.stage in ("burning", "burnt")):
             return
         if self.stage == "lore":
             if self.stage_time < 0.8:
@@ -166,6 +178,11 @@ class PageScene:
     def choose(self):
         kind, key = self.options[self.selected]
         if kind == "burn":
+            if self.parchment_ok():
+                # it catches, burns up from the bottom, and is ash (update finishes it)
+                self.set_stage("burning")
+                self.game.sound.play("cast_fire")
+                return
             self.run.change_sanity(BURN_SANITY)
         elif self.run.get(key) is None and not self.run.has_room():
             # no room: he has to strike one out first
@@ -188,9 +205,20 @@ class PageScene:
         self.crossing = (old, 0.0)
         self.game.sound.play("burnout")                     # the scratch of the pen
 
+    def parchment_ok(self):
+        return art.parchment_frames(*self.page_size()) is not None
+
     def update(self, dt):
         self.time += dt
         self.stage_time += dt
+        if self.stage == "burning":
+            done = BURN_FRAME * (art.PAGE_FRAMES - 1) + BURN_HOLD
+            if self.stage_time >= done:
+                self.stage = "burnt"            # once only
+                self.run.change_sanity(BURN_SANITY)
+                self.game.sound.play("heal")
+                self.game.after_page(self.boss)
+            return
         if self.crossing:
             old, t = self.crossing
             t += dt
@@ -211,188 +239,279 @@ class PageScene:
 
     # --- drawing -----------------------------------------------------------------
     def draw_ui(self, surface):
-        top = 20
+        top = 12
         if self.unlocked_now:
             names = ", ".join(SPELLS[k].name for k in self.unlocked_now)
             ui.draw_text(surface, ui.font(28), f"Unlocked forever: {names}", GOLD,
-                         center=(WIDTH // 2, top + 6))
-            top += 22
-        rect = self.draw_parchment(surface, top)
+                         center=(WIDTH // 2, top + 8))
+            top += 24
+        rect = self.page_rect(top + 56)
+        # the heading and the line under it sit above the page and the panel
         tier = sanity_tier(self.sanity)
         title = (f"A page falls from {self.source_name}" if self.boss
                  else "A torn scrap drifts from the shadows")
-        title = ui.fit(title, ui.font(36), rect.width - 30)
-        on_page(surface, ui.font(36), title, INK, center=(rect.centerx, rect.top + 26))
-        if self.stage == "lore":
-            self.draw_lore(surface, rect)
+        x_mid = (rect.left + WIDTH - 10) // 2
+        span = WIDTH - 10 - rect.left
+        ui.draw_text(surface, ui.font(36), ui.fit(title, ui.font(36), span), BONE,
+                     center=(x_mid, top + 14))
+        if self.stage in ("burning", "burnt"):
+            sub = f"It curls to ash. +{BURN_SANITY} sanity."
         elif self.stage == "cross":
-            self.draw_cross(surface, rect)
+            sub = f"No room for {SPELLS[self.new_key].name}. Cross out a spell to write it in."
+        elif self.stage == "lore":
+            sub = "Something is written on it."
         else:
             sub = (f"Your mind: {TIER_NAMES[tier]} ({self.sanity:.0f} sanity)   "
                    f"potency x{self.potency:.2f}   {len(self.options) - 1} choices")
-            on_page(surface, ui.font(22), sub, (90, 40, 110), center=(rect.centerx, rect.top + 52))
-            self.draw_choices(surface, rect)
+            if not self.run.has_room():
+                sub += "   grimoire full"
+        ui.draw_text(surface, ui.font(22), ui.fit(sub, ui.font(22), span), (200, 170, 230),
+                     center=(x_mid, top + 40))
+        self.draw_parchment(surface, rect)
+        text = self.text_box(rect)
+        side = pygame.Rect(rect.right + SIDE_GAP, rect.top + round(rect.height * 0.1),
+                           WIDTH - 10 - rect.right - SIDE_GAP, round(rect.height * 0.8))
+        if self.stage == "lore":
+            self.draw_lore(surface, text)
+            self.draw_side(surface, side, None, "Any key: turn the page" if self.stage_time >= 0.8 else "")
+        elif self.stage == "cross":
+            self.draw_cross(surface, text)
+            pick = self.cross_pick
+            owned = self.run.grimoire[pick] if pick < len(self.run.grimoire) else None
+            self.draw_side(surface, side, ("owned", owned) if owned else ("back", None),
+                           "Up/Down + Enter, or a number   Esc: back")
+        elif self.stage in ("burning", "burnt"):
+            # the writing burns away with the paper: only what is above the flames shows
+            left = BURN_LEFT[min(len(BURN_LEFT) - 1, self.burn_index())]
+            if left > 0:
+                surface.set_clip(pygame.Rect(rect.left, rect.top, rect.width,
+                                             round(rect.height * left)))
+                self.draw_choices(surface, text)
+                surface.set_clip(None)
+        else:
+            self.draw_choices(surface, text)
+            self.draw_side(surface, side, self.options[self.selected],
+                           "Up/Down + Enter, or a number")
 
-    def draw_parchment(self, surface, top):
-        """The torn page, the dropped page's picture beside it. Returns the page's rect."""
-        rect = pygame.Rect(WIDTH // 2 - 340, top + 14, 680, HEIGHT - top - 30)
+    def burn_index(self):
+        """Which burning picture shows now (1 to the last)."""
+        return min(art.PAGE_FRAMES - 1, 1 + int(self.stage_time / BURN_FRAME))
+
+    def page_size(self, top=None):
+        """The page at its painted shape, as tall as the screen allows."""
+        top = (12 + (24 if self.unlocked_now else 0) + 56) if top is None else top
+        height = HEIGHT - top - 8
+        _, _, w, h = art.PAGE_BOX
+        return round(height * w / h), height
+
+    def page_rect(self, top):
+        w, h = self.page_size(top)
+        return pygame.Rect(266 if self.art else 120, top, w, h)
+
+    def text_box(self, rect):
+        """Where words may go: inside the page's purple corner brackets."""
+        l, t, r, b = PAGE_TEXT
+        x0, x1 = rect.left + round(rect.width * l), rect.left + round(rect.width * r)
+        y0, y1 = rect.top + round(rect.height * t), rect.top + round(rect.height * b)
+        return pygame.Rect(x0, y0, x1 - x0, y1 - y0)
+
+    def draw_parchment(self, surface, rect):
+        """The page, and the dropped page's picture floating beside it."""
         if self.art:
-            # the dropped page floats on the left; the choices move right
-            rect = pygame.Rect(266, top + 14, 680, HEIGHT - top - 30)
             bob = int(math.sin(self.time * 2) * 8)
             center = (134, HEIGHT // 2 + bob)
             halo = art.glow(150, [(90, 230, 240), (190, 110, 255), (255, 70, 70)][self.look], 150)
             surface.blit(halo, halo.get_rect(center=center))
             surface.blit(self.art, self.art.get_rect(center=center))
-        rng = random.Random(7)
-        pts = []
-        for i in range(21):
-            pts.append((rect.left + rect.width * i / 20, rect.top + rng.randint(-6, 6)))
-        for i in range(21):
-            pts.append((rect.right + rng.randint(-6, 4), rect.top + rect.height * i / 20))
-        for i in range(21):
-            pts.append((rect.right - rect.width * i / 20, rect.bottom + rng.randint(-6, 6)))
-        for i in range(21):
-            pts.append((rect.left + rng.randint(-4, 6), rect.bottom - rect.height * i / 20))
-        pygame.draw.polygon(surface, (196, 182, 150), pts)
-        pygame.draw.polygon(surface, (120, 100, 80), pts, 2)
-        # blood drips at low sanity
-        tier = sanity_tier(self.sanity)
-        for i in range(tier * 4):
-            dx = rect.left + 30 + (i * 151) % (rect.width - 60)
-            length = 10 + ((i * 37) % 40) * min(1.0, self.time)
-            pygame.draw.line(surface, BLOOD, (dx, rect.top), (dx, rect.top + length), 3)
-        return rect
+        frames = art.parchment_frames(rect.width, rect.height)
+        if frames:
+            index = 0
+            if self.stage in ("burning", "burnt"):
+                index = self.burn_index()
+                glow = art.glow(220, (255, 140, 50), int(10 * max(0.0, 1 - self.stage_time / 1.4)) * 15)
+                surface.blit(glow, glow.get_rect(center=(rect.centerx, rect.bottom - 60)))
+            surface.blit(frames[index], rect)
+        else:
+            rng = random.Random(7)
+            pts = []
+            for i in range(21):
+                pts.append((rect.left + rect.width * i / 20, rect.top + rng.randint(-6, 6)))
+            for i in range(21):
+                pts.append((rect.right + rng.randint(-6, 4), rect.top + rect.height * i / 20))
+            for i in range(21):
+                pts.append((rect.right - rect.width * i / 20, rect.bottom + rng.randint(-6, 6)))
+            for i in range(21):
+                pts.append((rect.left + rng.randint(-4, 6), rect.bottom - rect.height * i / 20))
+            pygame.draw.polygon(surface, (196, 182, 150), pts)
+            pygame.draw.polygon(surface, (120, 100, 80), pts, 2)
+        # blood drips at low sanity (not once it is burning)
+        if self.stage not in ("burning", "burnt"):
+            tier = sanity_tier(self.sanity)
+            edge = rect.top + round(rect.height * 0.04)
+            for i in range(tier * 4):
+                dx = rect.left + 50 + (i * 151) % (rect.width - 100)
+                length = 10 + ((i * 37) % 40) * min(1.0, self.time)
+                pygame.draw.line(surface, BLOOD, (dx, edge), (dx, edge + length), 3)
 
-    def draw_lore(self, surface, rect):
+    # --- the panel beside the page: the chosen line in full, and the keys ----------
+    def draw_side(self, surface, box, option, hint):
+        ui.panel(surface, box, 225)
+        x, width = box.x + 22, box.width - 44
+        y = box.y + 22
+        small = ui.font(19)
+
+        def lines(text, color, gap=16):
+            nonlocal y
+            for line in ui.wrap(text, small, width):
+                ui.draw_text(surface, small, line, color, topleft=(x, y))
+                y += gap
+            y += 6
+
+        if option is None:              # the lore: no choice yet
+            lines("Read the page. When you turn it over, you choose what to take "
+                  "from it.", GRAY)
+        else:
+            kind, key = option
+            if kind == "burn":
+                ui.draw_text(surface, ui.font(26), "Burn the page", (255, 170, 90), topleft=(x, y))
+                y += 34
+                lines(f"Watch it curl to ash. +{BURN_SANITY} sanity, and no spell.", WHITE)
+            elif kind == "back":
+                ui.draw_text(surface, ui.font(26), "Never mind", WHITE, topleft=(x, y))
+                y += 34
+                lines("Keep every spell, and go back to the page.", GRAY)
+            else:
+                if kind == "owned":
+                    owned = key
+                    spell, key = owned.defn, owned.key
+                    head = f"Lv{owned.level}"
+                    stats = f"{effect_text(spell.kind, owned.strength())}   {cost_text(spell.sanity_cost)}"
+                else:
+                    spell = SPELLS[key]
+                    owned = self.run.get(key)
+                    if owned:
+                        preview = OwnedSpell(key, owned.level + 1, max(owned.potency, self.potency))
+                        head = f"Lv{owned.level} -> Lv{owned.level + 1}"
+                        before = owned.strength()
+                    else:
+                        preview = OwnedSpell(key, 1, self.potency)
+                        head = "New" if spell.tier != "forbidden" else "Forbidden"
+                        if not self.run.has_room():
+                            head += ", cross one out"
+                        before = None
+                    stats = (f"{effect_text(spell.kind, preview.strength(), before)}   "
+                             f"{cost_text(spell.sanity_cost)}")
+                col = ELEMENT_COLORS[spell.element]
+                name = ui.fit(spell.name, ui.font(26), width)
+                ui.draw_text(surface, ui.font(26), name, col, topleft=(x, y))
+                y += 32
+                lines(f"{head}   ({spell.element}, {spell.tier})",
+                      MISS_COL if spell.tier == "forbidden" else GOLD)
+                lines(stats, WHITE)
+                lines(f'Type "{spell.incantation}" ({spell.letters} letters)', SANITY_COL)
+                lines(spell.desc, GRAY)
+                if kind == "owned":
+                    lines("Crossed out, it is gone from the grimoire.", (230, 120, 120))
+        if hint:
+            for i, line in enumerate(reversed(ui.wrap(hint, ui.font(20), width))):
+                ui.draw_text(surface, ui.font(20), line, GRAY,
+                             midbottom=(box.centerx, box.bottom - 18 - i * 17))
+
+    # --- the page -----------------------------------------------------------------
+    def draw_lore(self, surface, text):
         """The grimoire's passage, and what is written beneath it if he can see it."""
         index, truth = self.lore
         name, said, beneath = LORE[index]
-        on_page(surface, ui.font(28), f"- {name} -", (90, 40, 110),
-                center=(rect.centerx, rect.top + 60))
-        width = rect.width - 90
-        body = ui.font(26)
-        y = rect.top + 92
-        for line in ui.wrap(said, body, width):
-            on_page(surface, body, line, INK, midtop=(rect.centerx, y))
-            y += 28
-        y += 14
-        pygame.draw.line(surface, (150, 130, 100), (rect.centerx - 120, y), (rect.centerx + 120, y), 1)
-        y += 18
+        y = text.top
+        on_page(surface, ui.font(26), ui.fit(name, ui.font(26), text.width), (90, 40, 110),
+                midtop=(text.centerx, y))
+        y += 36
+        body = ui.font(20)
+        for line in ui.wrap(said, body, text.width):
+            on_page(surface, body, line, INK, midtop=(text.centerx, y))
+            y += 18
+        y += 10
+        pygame.draw.line(surface, (150, 130, 100), (text.centerx - 60, y), (text.centerx + 60, y), 1)
+        y += 12
         if truth:
             # the other writing shows through, a letter at a time, shaky at low sanity
             shown = int(max(0.0, self.stage_time - 0.8) * TRUTH_SPEED)
             jitter = [0, 0.5, 1.2][sanity_tier(self.sanity)]
             left = beneath[:shown]
-            for line in ui.wrap(beneath, body, width):
+            for line in ui.wrap(beneath, body, text.width):
                 part, left = left[:len(line)], left[len(line):].lstrip(" ")
                 if part:
-                    x = rect.centerx - body.size(line)[0] // 2
+                    x = text.centerx - body.size(line)[0] // 2
                     dx = round(random.uniform(-jitter, jitter))
                     on_page(surface, body, part, RED_INK, topleft=(x + dx, y))
-                y += 28
-        else:
-            faint = (150, 136, 112)
-            for line in ui.wrap("Something else is written beneath, in other hands, too faint "
-                                f"to read while your mind is this clear (below {LORE_TRUTH_BELOW} "
-                                "sanity it would show).", ui.font(20), width):
-                on_page(surface, ui.font(20), line, faint, midtop=(rect.centerx, y))
                 y += 18
-        if self.stage_time >= 0.8:
-            on_page(surface, ui.font(20), "Any key: turn the page   (read it again in the codex)",
-                    (90, 80, 70), center=(rect.centerx, rect.bottom - 14))
+        else:
+            for line in ui.wrap("Something else is written beneath, in other hands, too "
+                                "faint to read while your mind is this clear. Below "
+                                f"{LORE_TRUTH_BELOW} sanity it would show.", body, text.width):
+                on_page(surface, body, line, (150, 136, 112), midtop=(text.centerx, y))
+                y += 18
 
-    def draw_choices(self, surface, rect):
+    def draw_choices(self, surface, text):
+        """One line for each choice, its name and what typing it takes."""
         run = self.run
-        y = rect.top + 72
-        space = (rect.bottom - 30 - y) / len(self.options)
-        row_h = min(66, space)
+        row_h = min(64, text.height / len(self.options))
+        y = text.top
         for i, (kind, key) in enumerate(self.options):
-            sel = i == self.selected
-            box = pygame.Rect(rect.left + 24, y, rect.width - 48, row_h - 6)
-            if sel:
+            box = pygame.Rect(text.left - 6, round(y), text.width + 12, round(row_h) - 4)
+            if i == self.selected:
                 pygame.draw.rect(surface, (230, 214, 170), box, border_radius=6)
                 pygame.draw.rect(surface, (120, 60, 40), box, 2, border_radius=6)
+            second = box.y + min(32, box.height - 15)
             if kind == "burn":
-                on_page(surface, ui.font(26), f"[{i + 1}] Burn the page",
-                        INK, topleft=(box.x + 10, box.y + 1))
-                on_page(surface, ui.font(20),
-                        f"Watch it curl to ash. +{BURN_SANITY} sanity.",
-                        (60, 50, 50), topleft=(box.x + 10, box.y + 33))
+                on_page(surface, ui.font(26), ui.fit(f"[{i + 1}] Burn the page", ui.font(26),
+                                                     text.width), INK, topleft=(text.left, box.y + 2))
+                on_page(surface, ui.font(19), f"+{BURN_SANITY} sanity", (60, 50, 50),
+                        topleft=(text.left, second))
             else:
                 spell = SPELLS[key]
                 owned = run.get(key)
                 if owned:
-                    preview = OwnedSpell(key, owned.level + 1, max(owned.potency, self.potency))
                     tag = f"Lv{owned.level} -> Lv{owned.level + 1}"
-                    before = owned.strength()
                 else:
-                    preview = OwnedSpell(key, 1, self.potency)
                     tag = "New" if spell.tier != "forbidden" else "Forbidden"
-                    if not run.has_room():
-                        tag += ", cross one out"
-                    before = None
-                col = ELEMENT_COLORS[spell.element]
-                dark = tuple(int(c * 0.55) for c in col)
-                name = on_page(surface, ui.font(26), f"[{i + 1}] {spell.name}", dark,
-                               topleft=(box.x + 10, box.y + 1))
-                on_page(surface, ui.font(20), tag,
-                        MISS_COL if spell.tier == "forbidden" else (120, 80, 30),
-                        topleft=(name.right + 14, box.y + 11))
-                stats = (f"{effect_text(spell.kind, preview.strength(), before)}   "
-                         f"{cost_text(spell.sanity_cost)}")
-                on_page(surface, ui.font(20), stats, INK, topright=(box.right - 10, box.y + 11))
-                line = f"\"{spell.incantation}\"  ({spell.letters} letters) - {spell.desc}"
-                line = ui.fit(line, ui.font(19), box.width - 20)
-                on_page(surface, ui.font(19), line, (70, 60, 55),
-                        topleft=(box.x + 10, box.y + 33))
+                dark = tuple(int(c * 0.55) for c in ELEMENT_COLORS[spell.element])
+                on_page(surface, ui.font(26), ui.fit(f"[{i + 1}] {spell.name}", ui.font(26),
+                                                     text.width), dark, topleft=(text.left, box.y + 2))
+                line = ui.fit(f'"{spell.incantation}"  {tag}', ui.font(19), text.width)
+                on_page(surface, ui.font(19), line,
+                        MISS_COL if spell.tier == "forbidden" else (90, 60, 40),
+                        topleft=(text.left, second))
             y += row_h
-        hint = "Up/Down + Enter, or press a number"
-        if not run.has_room():
-            hint += "   (grimoire full: a new spell crosses one out)"
-        on_page(surface, ui.font(20), hint, (90, 80, 70), center=(rect.centerx, rect.bottom - 14))
 
-    def draw_cross(self, surface, rect):
+    def draw_cross(self, surface, text):
         """The grimoire is full: pick the spell to strike out for the new one."""
-        new = SPELLS[self.new_key]
-        on_page(surface, ui.font(22),
-                ui.fit(f"No room for {new.name}. Cross out a spell to write it in.",
-                       ui.font(22), rect.width - 40),
-                (90, 40, 110), center=(rect.centerx, rect.top + 52))
         grimoire = self.run.grimoire
-        y = rect.top + 72
         count = len(grimoire) + 1
-        row_h = min(48, (rect.bottom - 34 - y) / count)
+        row_h = min(48, text.height / count)
+        y = text.top
         crossing_key = self.crossing[0] if self.crossing else None
         for i in range(count):
-            sel = i == self.cross_pick
-            box = pygame.Rect(rect.left + 24, round(y), rect.width - 48, round(row_h) - 6)
-            if sel:
+            box = pygame.Rect(text.left - 6, round(y), text.width + 12, round(row_h) - 4)
+            if i == self.cross_pick:
                 pygame.draw.rect(surface, (230, 214, 170), box, border_radius=6)
                 pygame.draw.rect(surface, (120, 60, 40), box, 2, border_radius=6)
             if i == len(grimoire):
-                on_page(surface, ui.font(26), f"[{i + 1}] Never mind",
-                        INK, midleft=(box.x + 10, box.centery))
-                on_page(surface, ui.font(20), "Back to the page (Esc)", (90, 80, 70),
-                        midright=(box.right - 10, box.centery))
+                on_page(surface, ui.font(26), f"[{i + 1}] Never mind", INK,
+                        midleft=(text.left, box.centery))
                 y += row_h
                 continue
             owned = grimoire[i]
             spell = owned.defn
             dark = tuple(int(c * 0.55) for c in ELEMENT_COLORS[spell.element])
-            name = on_page(surface, ui.font(26), f"[{i + 1}] {spell.name}  Lv{owned.level}", dark,
-                           midleft=(box.x + 10, box.centery))
-            on_page(surface, ui.font(19), ui.fit(f"\"{spell.incantation}\"", ui.font(19),
-                                                 box.right - 10 - name.right - 20),
-                    (70, 60, 55), midright=(box.right - 10, box.centery))
+            on_page(surface, ui.font(26), ui.fit(f"[{i + 1}] {spell.name} Lv{owned.level}",
+                                                 ui.font(26), text.width),
+                    dark, midleft=(text.left, box.centery))
             if owned.key == crossing_key:
                 # the pen strikes it out, left to right, in a shaky double line
                 k = min(1.0, self.crossing[1] / CROSS_TIME)
-                x0, x1 = box.x + 6, box.x + 6 + (box.width - 12) * k
+                x0, x1 = box.x + 4, box.x + 4 + (box.width - 8) * k
                 cy = box.centery
                 pygame.draw.line(surface, RED_INK, (x0, cy - 2), (x1, cy + 1), 3)
                 pygame.draw.line(surface, RED_INK, (x0 + 4, cy + 4), (x1, cy + 2), 2)
             y += row_h
-        if not self.crossing:
-            on_page(surface, ui.font(20), "Up/Down + Enter, or press a number   Esc: back",
-                    (90, 80, 70), center=(rect.centerx, rect.bottom - 14))

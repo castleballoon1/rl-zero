@@ -71,7 +71,7 @@ The plain `README` file describes the two prototypes.
 * **Pages, like Balatro's boss blinds:**
   * A dying creature dissolves into a page (its death sheet plays). Bosses drop a full page, ordinary fights a scrap.
   * **The lower your sanity when you read it,** the higher its potency (up to ×1.9), the more spells you can choose from (up to 5), and below 40 sanity forbidden spells appear. The page is cyan when you are Lucid, violet when Uneasy, crimson when Fraying.
-  * Picking a spell you already own empowers it by one level. You can also burn the page for +20 sanity.
+  * Picking a spell you already own empowers it by one level. You can also burn the page for +20 sanity: it catches at the bottom and burns up to ash, taking the writing with it.
   * **A full grimoire (8 spells) can still take a new spell:** choose it, then cross out one of your spells to make room. The pen strikes it through and the new spell is written in its place. "Never mind" (or Esc) goes back to the page.
   * **Boss pages carry the grimoire's story.** Before you choose, you read one passage (`lore.py`): what the grimoire says about itself. Read it **below 40 sanity** and what earlier readers wrote beneath it shows through in red ink. The grimoire lies; only a fraying mind sees it. Acts 1 to 3 give the first three pages and the endless woods the rest (9 in all). Pages found are kept in `save.json` and can be read again in the codex.
 * **Campfires:** after the first and second boss you pick one: regain 45 sanity, raise one spell by a level, or take one of two relics.
@@ -152,6 +152,9 @@ Each healing spell cast in one fight restores 60% of what the last one did. Ever
 | `assets/Sprites/MC (detailed)/the child spritesheet (no book).png` | The child's calm row with the grimoire painted out, for the opening before he finds it. Made from the main sheet by `tools/remove_book.py` (run it again if the sheet is re-exported). |
 | `assets/Sprites/MC (detailed)/` | The child. The three rows are his Lucid, Uneasy and Fraying looks. His eye is recoloured in code as sanity falls (the eye boxes are listed in `art.py`). |
 | `assets/Sprites/drops/` | The page on the reward screen, coloured by sanity |
+| `assets/Sprites/Burning Spell Selection Parchment Sprite Sheet-2.png` | The parchment you choose a spell from (frame 0, stretched to the page), and the 6 frames of it burning when you burn the page (`art.parchment_frames`) |
+| `assets/Sprites/Eight-Frame Enchanted Campfire Loop-1.png` | The campfire between acts, an 8-frame loop at 10 frames a second (`art.campfire_frames`) |
+| `assets/Sprites/Enchanted thorn bramble hazard.png` | The thorn patches in the woods, drawn 1.4x wider than the part that hurts (`art.bramble_surface`) |
 | `assets/Sprites/Blank Vined Pixel-Art HUD Frame.png` | The vined stone frame around every text box and menu (`ui.panel`). `tools/make_vine_frame.py` trims it and makes its inside see-through, writing `assets/Sprites/UI/vine_frame.png`; the game cuts that into 9 pieces so a box can be any size. Run the tool again if the frame is re-exported. |
 | `assets/Sprites/Teal Rune Shrine Animation Atlas-2.png` | The shrines: waiting (rune faintly lit), the four frames that play when he prays (motes, a swirl, a ring of light), and spent (rune dark). The shrine's box in each cell is `art.SHRINE_BOX` |
 | `assets/Sprites/Glowing Runic Stone Tablet.png` | The lore stones in the woods |
@@ -161,7 +164,7 @@ Each healing spell cast in one fight restores 60% of what the last one did. Ever
 
 All text uses a medieval, blackletter-style pixel font drawn in code (`pixelfont.py`), with a black outline. Every letter is a grid of dots listed in that file, so no font file is needed.
 
-Still drawn with shapes, with no painted art yet: platforms, thorns, motes, the boss gate, the campfire, the casting circle and the spell bolts.
+Still drawn with shapes, with no painted art yet: platforms, motes, the casting circle and the spell bolts.
 
 If a painted file is missing, the game falls back to a drawn stand-in.
 

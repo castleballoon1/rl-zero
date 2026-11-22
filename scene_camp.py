@@ -28,6 +28,7 @@ class CampScene:
         self.options = [("rest", None), ("study", None)]
         self.options += [("relic", key) for key in relic_keys]
         self.hero = art.hero_frames(120)
+        self.fire_frames = art.campfire_frames(art.CAMPFIRE_TALL)
         self.scene = art.forest_scene()
         self.shade = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.shade.fill((4, 2, 10, 170))
@@ -104,8 +105,11 @@ class CampScene:
         flicker = int(6 * math.sin(self.time * 9) + 3 * math.sin(self.time * 23))
         light = art.glow(230 + flicker, (255, 150, 60), 150)
         surface.blit(light, light.get_rect(center=FIRE))
-        fire = art.campfire_surface(int(self.time * 10))
-        surface.blit(fire, fire.get_rect(midbottom=(FIRE[0], FIRE[1] + 12)))
+        if self.fire_frames:
+            fire = self.fire_frames[int(self.time / art.FIRE_FRAME_TIME) % len(self.fire_frames)]
+        else:
+            fire = art.campfire_surface(int(self.time * 10))
+        surface.blit(fire, fire.get_rect(midbottom=(FIRE[0], FIRE[1] + 8)))
         boy = art.hero_poses(self.hero, self.run.sanity, self.run.max_sanity)["idle"]
         surface.blit(boy, boy.get_rect(midbottom=(FIRE[0] - 120, FIRE[1] + 10)))
         # sparks

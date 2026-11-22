@@ -247,7 +247,7 @@ class ExploreScene:
                          else art.SHRINE_SPENT)
                 bright = math.sin(math.pi * min(1.0, self.praying[i] /
                                                 (SHRINE_FRAME_TIME * len(art.SHRINE_PRAYING))))
-                g = art.glow(70, (90, 240, 200), int(60 + 120 * bright))
+                g = art.glow(70, (90, 240, 200), 60 + int(8 * bright) * 15)
                 surface.blit(g, g.get_rect(center=rune))
             elif used:
                 frame = art.SHRINE_SPENT
@@ -259,7 +259,7 @@ class ExploreScene:
         for rect, _ in self.lore:
             surface.blit(self.lore_img, (rect.x - cam, rect.y))
         for rect, img in self.brambles:
-            surface.blit(img, (rect.x - cam, rect.bottom - 40))
+            surface.blit(img, img.get_rect(midbottom=(rect.centerx - cam, rect.bottom + 2)))
         for k, (rect, taken) in enumerate(self.motes):
             if not taken:
                 bob = int(math.sin(self.time * 3 + k) * 4)

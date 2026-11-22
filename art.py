@@ -155,6 +155,7 @@ def shrine_surface(used):
 # The painted shrine: a 3 x 2 atlas of 512 px cells, the shrine in the same
 # spot in each. 0 is waiting (its rune faintly lit), 1-4 wake it as he prays
 # (motes, a swirl, a ring of light), 5 is spent (the rune dark).
+CAMPFIRE_TALL = 150        # the campfire between acts, smoke included
 SHRINE_TALL = 110          # how tall the shrine stands in the woods
 LORE_TALL = 78             # ... and the lore tablets
 SHRINE_CELL = 512
@@ -304,11 +305,27 @@ def boss_gate_frames():
     return result
 
 
+BRAMBLE_SPREAD = 1.4       # the painted thorns reach this much wider than the part that hurts
+
+
 def bramble_surface(w):
-    """A patch of thorns. The hitbox is the lower 20 pixels."""
+    """A patch of thorns for a hazard w pixels wide. The hitbox is the lower 20 pixels.
+
+    The painted bramble (assets/Sprites/Enchanted thorn bramble hazard.png) is
+    drawn BRAMBLE_SPREAD times wider than the hitbox, since its ends are thin
+    tendrils and the thick, spiked middle is what hurts. Place it by its
+    midbottom. Without the picture, thorns are drawn with lines, w x 40.
+    """
     key = ("bramble", w)
     if key in _cache:
         return _cache[key]
+    painted = _painted_bramble()
+    if painted is not None:
+        width = round(w * BRAMBLE_SPREAD)
+        height = max(1, round(painted.get_height() * width / painted.get_width()))
+        surf = pygame.transform.smoothscale(painted, (width, height))
+        _cache[key] = surf
+        return surf
     surf = pygame.Surface((w, 40), pygame.SRCALPHA)
     rng = random.Random(w)
     stems = []
@@ -322,6 +339,80 @@ def bramble_surface(w):
             pygame.draw.line(surf, tip, (top_x, top), (top_x, top + 5), width)
     _cache[key] = surf
     return surf
+
+
+def _painted_bramble():
+    """The painted bramble, trimmed, or None if it is missing."""
+    key = "painted_bramble"
+    if key not in _cache:
+        path = os.path.join(ASSET_DIR, "Sprites", "Enchanted thorn bramble hazard.png")
+        try:
+            image = _solid(pygame.image.load(path).convert_alpha(), 20)
+            _cache[key] = image.subsurface(image.get_bounding_rect()).copy()
+        except (pygame.error, FileNotFoundError):
+            _cache[key] = None
+    return _cache[key]
+
+
+# The painted campfire: 8 frames in a 4 x 2 grid of 443.5 px cells, the fire on
+# the same spot in each (FIRE_BOX inside every cell), looping.
+FIRE_CELL = 443.5
+FIRE_BOX = (80, 33, 283, 352)
+FIRE_FRAME_TIME = 0.1
+
+
+def campfire_frames(height):
+    """The eight painted campfire frames (smoke and all), or None if missing."""
+    key = ("campfire_frames", height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Eight-Frame Enchanted Campfire Loop-1.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except (pygame.error, FileNotFoundError):
+        return None
+    x, y, w, h = FIRE_BOX
+    frames = []
+    for i in range(8):
+        row, col = divmod(i, 4)
+        cell = pygame.Rect(round(col * FIRE_CELL) + x, round(row * FIRE_CELL) + y, w, h)
+        frames.append(_solid(sheet.subsurface(cell.clip(sheet.get_rect())).copy(), 20))
+    frames = sprites.scale_frames(frames, height / h, smooth=True)
+    _cache[key] = frames
+    return frames
+
+
+# The page you choose a spell from, and its burning: 7 frames in a 4 x 2 grid
+# of 443.5 px cells (the 8th is empty). 0 is the whole page; 1-6 burn it from
+# the bottom up to ash. PAGE_BOX is the page's box inside every cell.
+PAGE_CELL = 443.5
+PAGE_BOX = (68, 26, 306, 394)
+PAGE_FRAMES = 7
+
+
+def parchment_frames(width, height):
+    """The parchment and its burning, stretched to width x height, or None.
+
+    All seven frames are stretched alike, so the burning page lines up with
+    the page that was there.
+    """
+    key = ("parchment", width, height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Burning Spell Selection Parchment Sprite Sheet-2.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except (pygame.error, FileNotFoundError):
+        return None
+    x, y, w, h = PAGE_BOX
+    frames = []
+    for i in range(PAGE_FRAMES):
+        row, col = divmod(i, 4)
+        cell = pygame.Rect(round(col * PAGE_CELL) + x, round(row * PAGE_CELL) + y, w, h)
+        frame = _solid(sheet.subsurface(cell.clip(sheet.get_rect())).copy(), 20)
+        frames.append(pygame.transform.smoothscale(frame, (width, height)))
+    _cache[key] = frames
+    return frames
 
 
 def campfire_surface(step):
@@ -885,4 +976,7 @@ def preload(report):
     unravel_frames(DEATH_TALL)   # the death scene, so it starts without a hitch
     shrine_frames(SHRINE_TALL)   # the painted shrine and its prayer
     lore_tablet(LORE_TALL)       # the runic tablets in the woods
+    campfire_frames(CAMPFIRE_TALL)
+    for w in (70, 90, 110):      # the thorn patches' widths (worldgen.py)
+        bramble_surface(w)
     hero_frames(DEATH_TALL)
