@@ -172,6 +172,90 @@ def gate_surface():
     return surf
 
 
+def status_panel_surface(tier):
+    """Compact ornate status frame for the run title and sanity gauge."""
+    key = ("status_panel", tier)
+    if key in _cache:
+        return _cache[key]
+
+    w, h = 320, 150
+    filenames = ("Lucid.png", "Uneasy.png", "Fraying.png")
+    path = os.path.join(ASSET_DIR, "Sprites", "HUD", filenames[tier])
+    try:
+        image = pygame.image.load(path).convert_alpha()
+    except pygame.error:
+        image = None
+    if image is not None:
+        box = image.get_bounding_rect()
+        if box.width:
+            left = max(0, box.left)
+            right = min(image.get_width(), box.right)
+            image = image.subsurface((left, 0, right - left, image.get_height())).copy()
+        surf = pygame.transform.smoothscale(image, (w, h))
+        _cache[key] = surf
+        return surf
+
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    dark = (27, 24, 45)
+    edge = (84, 76, 112)
+    root = (95, 72, 105)
+    accent = [(55, 190, 205), (200, 160, 230), (235, 70, 80)][tier]
+
+    pygame.draw.rect(surf, (*dark, 170), (0, 0, w, h), border_radius=4)
+    pygame.draw.rect(surf, edge, (0, 0, w, h), 2, border_radius=4)
+    pygame.draw.rect(surf, (140, 125, 176), (4, 4, w - 8, h - 8), 1,
+                     border_radius=3)
+
+    pygame.draw.line(surf, root, (4, 67), (12, 54), 4)
+    pygame.draw.line(surf, root, (12, 54), (18, 47), 3)
+    pygame.draw.line(surf, root, (296, 67), (288, 54), 4)
+    pygame.draw.line(surf, root, (288, 54), (282, 47), 3)
+    for x, side in ((7, 1), (293, -1)):
+        pygame.draw.polygon(surf, accent,
+                            [(x, 16), (x + side * 8, 11),
+                             (x + side * 5, 18)])
+
+    _cache[key] = surf
+    return surf
+
+
+def progress_sprite(name, size):
+    """Load and scale a painted exploration-progress sprite."""
+    key = ("progress_sprite", name, size)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Progress", name + ".png")
+    try:
+        image = pygame.image.load(path).convert_alpha()
+    except pygame.error:
+        return None
+    result = pygame.transform.smoothscale(image, size)
+    _cache[key] = result
+    return result
+
+
+def boss_gate_frames():
+    """Load the six frames of the enchanted forest boss gate."""
+    key = "boss_gate_frames"
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Enchanted Forest Boss Door Animation.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except pygame.error:
+        result = [gate_surface()]
+    else:
+        frame_w, frame_h = sheet.get_width() // 3, sheet.get_height() // 2
+        result = [
+            pygame.transform.scale(
+                sheet.subsurface((col * frame_w, row * frame_h, frame_w, frame_h)),
+                (192, 192))
+            for row in range(2) for col in range(3)
+        ]
+    _cache[key] = result
+    return result
+
+
 def bramble_surface(w):
     """A patch of thorns. The hitbox is the lower 20 pixels."""
     key = ("bramble", w)
@@ -596,6 +680,60 @@ def hero_frames(height):
         death = drawn[8:12]
     _cache[key] = dict(looks=looks, death=death)
     return _cache[key]
+
+
+def unravel_frames(height):
+    """Nine painted frames of the boy dissolving into purple wisps."""
+    key = ("unravel_frames", height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Death",
+                        "Fading Boy with Purple Wisps.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except pygame.error:
+        return None
+    frame_w = sheet.get_width() // 3
+    frame_h = sheet.get_height() // 3
+    frames = []
+    for row in range(3):
+        for col in range(3):
+            frame = sheet.subsurface((col * frame_w, row * frame_h,
+                                      frame_w, frame_h)).copy()
+            box = frame.get_bounding_rect()
+            if box.width and box.height:
+                frame = frame.subsurface(box).copy()
+            factor = height / frame.get_height()
+            frames.append(pygame.transform.smoothscale(
+                frame, (max(1, round(frame.get_width() * factor)), height)))
+    _cache[key] = frames
+    return frames
+
+
+def opening_boy_frames(height):
+    """Nine wake-to-walk frames from the painted opening cutscene atlas."""
+    key = ("opening_boy_frames", height)
+    if key in _cache:
+        return _cache[key]
+    path = os.path.join(ASSET_DIR, "Sprites", "Opening", "Wake to Walk.png")
+    try:
+        sheet = pygame.image.load(path).convert_alpha()
+    except pygame.error:
+        return None
+    frame_w, frame_h = sheet.get_width() // 3, sheet.get_height() // 3
+    frames = []
+    for row in range(3):
+        for col in range(3):
+            frame = sheet.subsurface((col * frame_w, row * frame_h,
+                                      frame_w, frame_h)).copy()
+            box = frame.get_bounding_rect()
+            if box.width and box.height:
+                frame = frame.subsurface(box).copy()
+            factor = height / frame.get_height()
+            frames.append(pygame.transform.smoothscale(
+                frame, (max(1, round(frame.get_width() * factor)), height)))
+    _cache[key] = frames
+    return frames
 
 
 def hero_bookless(height):

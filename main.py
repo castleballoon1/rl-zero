@@ -362,23 +362,29 @@ class Game:
     def draw_hud(self, surface):
         """Name, act and the one bar that matters: sanity, which is also his health."""
         run = self.run
-        ui.panel(surface, (8, 8, 330, 52), 170)
-        head = f"{run.name}  -  Act {run.act}"
-        if run.difficulty != "normal":
-            head += f"  ({DIFFICULTY[run.difficulty]['name']})"
-        ui.draw_text(surface, ui.font(22), ui.fit(head, ui.font(22), 310), BONE, topleft=(16, 12))
-        bar = (16, 32, 220, 18)
-        ui.draw_bar(surface, bar, run.sanity / run.max_sanity, SANITY_COL)
-        if run.shield > 0:
-            ui.draw_bar(surface, (16, 32, 220, 5), run.shield / MAX_SHIELD, SHIELD_COL,
-                        border=SHIELD_COL)
-        for mark in (SANITY_LUCID, SANITY_FRAYING):   # where the words change
-            x = 16 + int(220 * mark / run.max_sanity)
-            pygame.draw.line(surface, GRAY, (x, 30), (x, 51), 1)
         tier = sanity_tier(run.sanity)
-        ui.draw_text(surface, ui.font(20), f"Sanity {run.sanity:.0f}", WHITE, midleft=(22, 41))
-        colour = [SANITY_COL, (200, 160, 230), (235, 70, 80)][tier]
-        ui.draw_text(surface, ui.font(20), TIER_NAMES[tier], colour, midleft=(246, 41))
+        panel = art.status_panel_surface(tier)
+        panel_y = -38
+        surface.blit(panel, (0, panel_y))
+
+        head = f"{run.name} - Act {run.act}"
+        if run.difficulty != "normal":
+            head += f" ({DIFFICULTY[run.difficulty]['name']})"
+        ui.draw_text(surface, ui.font(22),
+                     ui.fit(head, ui.font(22), 280), BONE,
+                     topleft=(16, 16))
+
+        bar = pygame.Rect(16, 38, 220, 18)
+        colours = [(55, 190, 205), (200, 160, 230), (235, 70, 80)]
+        ui.draw_bar(surface, bar, run.sanity / run.max_sanity, colours[tier])
+        if run.shield > 0:
+            ui.draw_bar(surface, (bar.left, bar.top, bar.width, 5),
+                        run.shield / MAX_SHIELD, SHIELD_COL,
+                        border=SHIELD_COL)
+        ui.draw_text(surface, ui.font(20), f"Sanity {run.sanity:.0f}",
+                     WHITE, midleft=(22, 47))
+        ui.draw_text(surface, ui.font(20), TIER_NAMES[tier],
+                     colours[tier], midleft=(246, 47))
 
     def draw_pause(self, surface):
         surface.blit(self.shade, (0, 0))

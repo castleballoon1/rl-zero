@@ -1,0 +1,33 @@
+{
+  "unlocked": [
+    "ember",
+    "ward",
+    "frost",
+    "lash",
+    "mend",
+    "clarity",
+    "cinder",
+    "wither",
+    "shatter",
+    "rot",
+    "bone",
+    "pact",
+    "mirror",
+    "blacksun",
+    "finalword",
+    "drain",
+    "echo",
+    "flare",
+    "chain",
+    "hourglass",
+    "plague",
+    "thorn",
+    "hymn",
+    "bloodprice"
+  ],
+  "runs": 56,
+  "wins": 1,
+  "best_act": 5,
+  "best_score": 7236,
+  "difficulty": "story"
+}

@@ -12,6 +12,9 @@ from settings import (WIDTH, HEIGHT, GROUND_Y, WHITE, GRAY, GOLD, BONE,
                       BRAMBLE_DAMAGE, MOTE_SANITY, SHRINE_SANITY, MISS_COL, SANITY_COL)
 from worldgen import generate_act
 
+GATE_FRAME_TIME = 0.16
+GATE_OPEN_HOLD = 0.3
+
 
 class ExploreScene:
     music = "woods"
@@ -56,8 +59,10 @@ class ExploreScene:
         self.motes = [[pygame.Rect(x - 10, y - 10, 20, 20), False]
                       for x, y in self.level["motes"]]
         self.lore_img = art.lore_surface()
-        self.gate_img = art.gate_surface()
-        self.gate_rect = self.gate_img.get_rect(midbottom=(self.level["gate_x"], GROUND_Y))
+        self.gate_frames = art.boss_gate_frames()
+        self.gate_rect = self.gate_frames[0].get_rect(
+            midbottom=(self.level["gate_x"], GROUND_Y))
+        self.gate_opening = None
         self.particles = pygame.sprite.Group()
         self.camera_x = 0.0
         self.banner = 3.0
@@ -74,6 +79,8 @@ class ExploreScene:
         if self.reading:
             self.reading = None
             return
+        if self.gate_opening is not None:
+            return
         if event.key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w):
             if self.player.on_ground:
                 self.game.sound.play("jump")
@@ -83,9 +90,9 @@ class ExploreScene:
         elif event.key == pygame.K_e:
             self.interact()
         elif event.key == pygame.K_RETURN:
-            if self.player.hitbox.colliderect(self.gate_rect.inflate(60, 0)):
-                run = self.game.run
-                self.game.start_combat([boss_for(run.act, run.difficulty)], True, None)
+            if (self.gate_opening is None
+                    and self.player.hitbox.colliderect(self.gate_rect.inflate(60, 0))):
+                self.gate_opening = 0.0
 
     def interact(self):
         run = self.game.run
@@ -106,6 +113,14 @@ class ExploreScene:
     # --- update --------------------------------------------------------------
     def update(self, dt):
         self.time += dt
+        if self.gate_opening is not None:
+            self.gate_opening += dt
+            animation_time = ((len(self.gate_frames) - 1) * GATE_FRAME_TIME
+                              + GATE_OPEN_HOLD)
+            if self.gate_opening >= animation_time:
+                run = self.game.run
+                self.game.start_combat([boss_for(run.act, run.difficulty)], True, None)
+            return
         self.banner = max(0.0, self.banner - dt)
         if self.reading:
             return
@@ -222,7 +237,12 @@ class ExploreScene:
                                    (rect.centerx - cam, rect.centery + bob), 4)
         g = art.glow(110, (200, 40, 70), 70)
         surface.blit(g, g.get_rect(center=(self.gate_rect.centerx - cam, self.gate_rect.centery)))
-        surface.blit(self.gate_img, (self.gate_rect.x - cam, self.gate_rect.y))
+        frame_index = 0
+        if self.gate_opening is not None:
+            frame_index = min(len(self.gate_frames) - 1,
+                              int(self.gate_opening / GATE_FRAME_TIME))
+        surface.blit(self.gate_frames[frame_index],
+                     (self.gate_rect.x - cam, self.gate_rect.y))
         for enemy in self.enemies:
             surface.blit(enemy.image, (enemy.rect.x - cam, enemy.rect.y))
             if len(enemy.kinds) > 1:      # more than one creature waits in this fight
@@ -243,20 +263,38 @@ class ExploreScene:
     def draw_ui(self, surface):
         game = self.game
         game.draw_hud(surface)
-        # progress line through the act
-        x0, x1, y = 300, WIDTH - 300, 22
-        pygame.draw.line(surface, GRAY, (x0, y), (x1, y), 2)
+        # painted progress track through the act
+        x0, x1, y = 300, WIDTH - 300, 550
+        track = art.progress_sprite("Track", (x1 - x0 + 56, 52))
+        if track:
+            surface.blit(track, track.get_rect(midtop=(WIDTH // 2, y - 26)))
         length = self.level["length"]
         for enemy in self.enemies:
             ex = x0 + (x1 - x0) * enemy.home / length
-            pygame.draw.circle(surface, (200, 60, 60), (int(ex), y), 4)
+            marker = art.progress_sprite("Boss", (24, 24))
+            if marker:
+                surface.blit(marker, marker.get_rect(center=(int(ex), y)))
+            else:
+                pygame.draw.circle(surface, (200, 60, 60), (int(ex), y), 4)
         for i, rect in self.shrines:
             if i not in game.run.shrines_used:
                 sx = x0 + (x1 - x0) * rect.centerx / length
-                pygame.draw.circle(surface, (120, 170, 255), (int(sx), y), 4)
-        pygame.draw.circle(surface, (200, 40, 70), (x1, y), 6)
+                marker = art.progress_sprite("Shrine", (22, 22))
+                if marker:
+                    surface.blit(marker, marker.get_rect(center=(int(sx), y)))
+                else:
+                    pygame.draw.circle(surface, (120, 170, 255), (int(sx), y), 4)
+        boss_marker = art.progress_sprite("Boss", (30, 30))
+        if boss_marker:
+            surface.blit(boss_marker, boss_marker.get_rect(center=(x1, y)))
+        else:
+            pygame.draw.circle(surface, (200, 40, 70), (x1, y), 6)
         px = x0 + (x1 - x0) * self.player.pos.x / length
-        pygame.draw.circle(surface, GOLD, (int(px), y), 5)
+        player_marker = art.progress_sprite("Player", (26, 26))
+        if player_marker:
+            surface.blit(player_marker, player_marker.get_rect(center=(int(px), y)))
+        else:
+            pygame.draw.circle(surface, GOLD, (int(px), y), 5)
         ui.draw_text(surface, ui.font(22), self.level["name"], BONE, midtop=(WIDTH // 2, y + 10))
 
         if self.prompt:

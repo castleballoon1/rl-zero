@@ -100,6 +100,7 @@ class IntroScene:
         self.shade.fill((4, 2, 12, 140))
         self.hero = art.hero_frames(HERO_TALL)
         self.bare = art.hero_bookless(HERO_TALL)    # before he finds the grimoire
+        self.opening_frames = art.opening_boy_frames(HERO_TALL)
         self.turned = {}                            # rotated pictures while he gets up
         self.rise_sounds = set()
         self.beat = 0
@@ -235,6 +236,11 @@ class IntroScene:
             span = BOOK_X - 70 - WAKE_X
             self.x = WAKE_X + span * min(1.0, t / BEATS[self.beat][1])
             self.walk_anim += dt
+        elif name == "go":
+            start = BOOK_X - 70
+            span = WIDTH + 100 - start
+            self.x = start + span * min(1.0, t / BEATS[self.beat][1])
+            self.walk_anim += dt
         elif name == "lift":
             # it rises out of the roots, opening, then drifts into his hands
             k = min(1.0, t / 1.3)
@@ -297,6 +303,40 @@ class IntroScene:
 
     def boy_parts(self):
         """[(picture, centre)] to draw for the boy, back to front."""
+        if self.has_book:
+            poses = art.hero_poses(self.hero, 100, 100, self.facing)
+            name = self.name
+            if name in ("walk", "go"):
+                img = poses["walk"][int(self.walk_anim / 0.14) % len(poses["walk"])]
+            elif self.cast_anim > 0 or name == "take":
+                img = poses["cast"]
+            else:
+                img = poses["idle"]
+            lift = int(math.sin((1 - self.cast_anim / 0.55) * math.pi) * 10) if self.cast_anim else 0
+            return [(img, img.get_rect(midbottom=(round(self.x), GROUND_Y - lift)).center)]
+
+        if self.opening_frames:
+            name = self.name
+            t = self.beat_time
+            if name in ("dark", "wake"):
+                index = 0 if t < 1.1 else 1
+            elif name == "rise":
+                index = min(5, 1 + int(t / 2.7 * 5))
+            elif name == "walk" or name == "go":
+                step = int(t / 0.28) % 4
+                index = (7, 6, 8, 6)[step]
+            elif name == "look" and self.facing == "left":
+                index = 6
+            elif name in ("take", "cast"):
+                index = 5
+            else:
+                index = 6
+            img = self.opening_frames[index]
+            if name == "look" and self.facing == "left":
+                img = pygame.transform.flip(img, True, False)
+            lift = int(math.sin((1 - self.cast_anim / 0.55) * math.pi) * 10) if self.cast_anim else 0
+            return [(img, img.get_rect(midbottom=(round(self.x), GROUND_Y - lift)).center)]
+
         poses = self.poses()
         state = self.rise_now()
         if state and state[0] == "sit":

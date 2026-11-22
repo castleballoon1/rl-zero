@@ -620,6 +620,7 @@ class DeathScene:
         self.gone_black = False
         # the mad look, in every eye colour from brown to red to black
         self.frames = art.hero_frames(art.DEATH_TALL)["looks"][2]
+        self.unravel_frames = art.unravel_frames(art.DEATH_TALL)
         game.sound.play("death")
 
     def eye(self):
@@ -649,10 +650,17 @@ class DeathScene:
 
     def draw_world(self, surface):
         surface.fill((0, 0, 0))
-        boy = self.frames[self.eye()]["right"]["idle"]
         shake = 0
         if self.REDDEN[0] < self.time < self.BLACKEN[0]:
             shake = round(math.sin(self.time * 70) * 2)     # he trembles as it takes him
+        if self.unravel_frames:
+            self.eye()  # keep the existing blackening sound timing
+            index = min(len(self.unravel_frames) - 1,
+                        int(min(1.0, self.time / self.LENGTH) *
+                            len(self.unravel_frames)))
+            boy = self.unravel_frames[index]
+        else:
+            boy = self.frames[self.eye()]["right"]["idle"]
         surface.blit(boy, boy.get_rect(center=(WIDTH // 2 + shake, HEIGHT // 2 - 10)))
 
     def draw_ui(self, surface):
