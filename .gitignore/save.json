@@ -23,15 +23,20 @@
     "plague",
     "thorn",
     "hymn",
-    "bloodprice"
+    "bloodprice",
+    "gaze"
   ],
-  "runs": 65,
+  "runs": 69,
   "wins": 1,
   "best_act": 5,
   "best_score": 7236,
   "difficulty": "story",
   "lore_read": [
-    0
+    0,
+    1
   ],
-  "lore_truth": []
+  "lore_truth": [
+    0,
+    1
+  ]
 }
